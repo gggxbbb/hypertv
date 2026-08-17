@@ -615,12 +615,16 @@ defineExpose({ refresh: polling.refresh })
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  /* 窄屏允许换行，避免固定宽度控件横向溢出 */
+  flex-wrap: wrap;
 }
 .search-input {
   width: 340px;
+  max-width: 100%;
 }
 .group-select {
   width: 160px;
+  max-width: 100%;
 }
 .hide-toggle {
   margin-left: 4px;
@@ -638,6 +642,7 @@ defineExpose({ refresh: polling.refresh })
   border: 1px solid #c7d2fe;
   border-radius: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .list-scroll {
   flex: 1;
