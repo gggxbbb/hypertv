@@ -46,11 +46,14 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import icu.gxb.hypertv.BuildConfig
 import icu.gxb.hypertv.data.repository.HypertvRepository
+import icu.gxb.hypertv.net.getLocalIpv4
 import icu.gxb.hypertv.player.Channel
 import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
 import icu.gxb.hypertv.player.PlayerState
+import icu.gxb.hypertv.server.SERVER_PORT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -70,8 +73,8 @@ import kotlinx.coroutines.launch
  * - 星号键（*）/ 红色功能键（ticket 06）：播放页切换当前播放频道收藏；浮层打开时
  *   切换浮层焦点频道收藏；收藏列表页内切换焦点频道收藏，均显示短暂提示
  * - Menu 键（ticket 06）：播放页呼出主菜单（半透明面板），上下键移动焦点、OK 进入
- *   收藏列表、返回键关闭回到播放页
- * - 返回键：浮层内仅收起不换台；主菜单/收藏列表页内关闭回到播放页；浮层外先取消数字输入
+ *   节目表/收藏列表/关于（回放为 v2 占位不可聚焦）、返回键关闭回到播放页
+ * - 返回键：浮层内仅收起不换台；主菜单/收藏列表页/关于页内关闭回到播放页；浮层外先取消数字输入
  *
  * 频道列表浮层：LazyColumn 虚拟化（5000+ 频道），行内 Coil AsyncImage 异步加载台标；
  * 主菜单与收藏列表页以全屏/局部覆盖层叠加在本页之上（简单状态机，不引入导航库）。
@@ -102,6 +105,11 @@ fun PlayerScreen(
     val favoritesScreen = remember { FavoritesScreenState() }
     val infoOverlay = remember { InfoOverlayState() }
     val guide = remember { EpgGuideState() }
+    val about = remember { AboutScreenState() }
+    // 关于页信息只读展示（本地读取，不依赖 Ktor 服务状态，ADR-0002）
+    val aboutInfo = remember {
+        AboutInfo(versionName = BuildConfig.VERSION_NAME, ip = getLocalIpv4(), port = SERVER_PORT)
+    }
     val listState = rememberLazyListState()
     val tabListState = rememberLazyListState()
     val favoritesListState = rememberLazyListState()
@@ -240,7 +248,7 @@ fun PlayerScreen(
     }
 
     val handler = PlayerKeyHandler(
-        controller, overlay, numberInput, menu, favoritesScreen, guide, infoOverlay, favoriteStore, scope,
+        controller, overlay, numberInput, menu, favoritesScreen, guide, infoOverlay, about, favoriteStore, scope,
     )
     handler.currentChannelId = currentChannelId
     handler.tabs = tabs
@@ -253,18 +261,23 @@ fun PlayerScreen(
         overlay.close()
     }
     handler.onMenuConfirm = { index ->
-        // index 0 收藏列表 / index 1 节目表；进入前打断数字输入，避免 2s 后误跳转
+        // index 0 节目表 / 1 收藏列表 / 2 关于；进入前打断数字输入，避免 2s 后误跳转
         numberInput.clear()
         when (index) {
             0 -> {
                 menu.close()
                 infoOverlay.close()
-                favoritesScreen.open()
+                guide.open(System.currentTimeMillis(), channels.size)
             }
             1 -> {
                 menu.close()
                 infoOverlay.close()
-                guide.open(System.currentTimeMillis(), channels.size)
+                favoritesScreen.open()
+            }
+            2 -> {
+                menu.close()
+                infoOverlay.close()
+                about.open()
             }
         }
     }
@@ -461,6 +474,16 @@ fun PlayerScreen(
                 listState = guideListState,
             )
         }
+
+        // 关于页全屏（主菜单"关于"进入，只读展示版本/IP/端口/二维码）
+        AnimatedVisibility(
+            visible = about.isOpen,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            AboutScreen(info = aboutInfo)
+        }
     }
 }
 
@@ -573,6 +596,7 @@ private class PlayerKeyHandler(
     private val favoritesScreen: FavoritesScreenState,
     private val guide: EpgGuideState,
     private val info: InfoOverlayState,
+    private val about: AboutScreenState,
     private val favoriteStore: FavoriteStore,
     private val scope: CoroutineScope,
 ) {
@@ -597,7 +621,7 @@ private class PlayerKeyHandler(
         }
         // 全局：Menu 键呼出主菜单（仅播放页且各浮层/页面收起时）
         if (code == AndroidKeyEvent.KEYCODE_MENU) {
-            if (!menu.isOpen && !favoritesScreen.isOpen && !overlay.isOpen && !guide.isOpen) {
+            if (!menu.isOpen && !favoritesScreen.isOpen && !overlay.isOpen && !guide.isOpen && !about.isOpen) {
                 numberInput.clear() // 打断数字输入，避免进入菜单后 2s 误跳转
                 menu.open()
             }
@@ -608,13 +632,14 @@ private class PlayerKeyHandler(
             menu.isOpen -> handleMenuKey(code)
             guide.isOpen -> handleGuideKey(code)
             favoritesScreen.isOpen -> handleFavoritesKey(code)
+            about.isOpen -> handleAboutKey(code)
             else -> handlePlayerKey(code)
         }
     }
 
     /** 星号/红键：按当前模式取目标频道（收藏列表页/浮层取焦点频道，播放页取当前播放频道） */
     private fun handleFavoriteToggle(): Boolean {
-        if (guide.isOpen) return true // Guide 页内无收藏语义，消费不动作
+        if (guide.isOpen || about.isOpen) return true // Guide/关于页内无收藏语义，消费不动作
         val targetId = when {
             favoritesScreen.isOpen -> favoritesScreen.focusedChannelId
             overlay.isOpen -> overlay.focusedChannelId ?: currentChannelId
@@ -626,6 +651,15 @@ private class PlayerKeyHandler(
             onToggleFavorite(targetId, nowFavorite)
         }
         return true
+    }
+
+    /** 关于页导航：只读页，返回键关闭；其余键无功能（消费） */
+    private fun handleAboutKey(code: Int): Boolean = when (code) {
+        AndroidKeyEvent.KEYCODE_BACK -> {
+            about.close()
+            true
+        }
+        else -> true // 上下键/OK/数字键等无功能，消费
     }
 
     /** 主菜单导航：上下键移动焦点（仅启用项）、OK 确认、返回键关闭；左右键无功能 */

@@ -418,4 +418,36 @@ class ManagementRouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertFalse(response.bodyAsText().isBlank())
     }
+
+    // ---- 空态（ticket 11 错误处理边界复核）：无数据时必须 200 空集合，不 500 ----
+
+    @Test
+    fun `channels returns 200 empty array when no data`() = testApplication {
+        hypertvApp(FakeChannelManagementStore())
+
+        val response = client.get("/api/channels")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(json.decodeFromString<List<ChannelDTO>>(response.bodyAsText()).isEmpty())
+    }
+
+    @Test
+    fun `favorites returns 200 empty array when none`() = testApplication {
+        hypertvApp(FakeChannelManagementStore())
+
+        val response = client.get("/api/channels/favorites")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(json.decodeFromString<List<ChannelDTO>>(response.bodyAsText()).isEmpty())
+    }
+
+    @Test
+    fun `groups returns 200 empty array when no groups`() = testApplication {
+        hypertvApp(FakeChannelManagementStore())
+
+        val response = client.get("/api/groups")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(json.decodeFromString<List<GroupDTO>>(response.bodyAsText()).isEmpty())
+    }
 }

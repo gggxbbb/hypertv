@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 /**
  * 主菜单的 UI 状态（ticket 06）：开合与焦点索引。
  *
- * 菜单项含启用项与禁用占位项（节目表/回放/关于，ticket 11 收尾）；焦点只在
+ * 菜单项含启用项与禁用占位项（回放 v2 占位，ticket 11 收尾）；焦点只在
  * 启用项之间移动（[focusableCount] 由调用方按菜单项定义传入），禁用项可见但不可聚焦。
  */
 class MainMenuState {
