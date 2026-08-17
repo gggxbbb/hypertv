@@ -38,6 +38,9 @@ class HypertvRepository(
 
     fun channelsBySource(sourceId: String): Flow<List<ChannelEntity>> = channelDao.getBySourceId(sourceId)
 
+    /** 一次性（非 Flow）按源查询，供导入等一次性任务使用 */
+    suspend fun channelsBySourceOnce(sourceId: String): List<ChannelEntity> = channelDao.getBySourceIdOnce(sourceId)
+
     suspend fun addChannels(channels: List<ChannelEntity>) = channelDao.upsertAll(channels)
 
     suspend fun addChannel(channel: ChannelEntity) = channelDao.upsert(channel)
@@ -74,7 +77,21 @@ class HypertvRepository(
 
     suspend fun playlistSourceById(id: String): PlaylistSourceEntity? = playlistSourceDao.getById(id)
 
+    /** 按归一化 URL 查找直播源，用于重复导入同源时增量合并（ADR-0004） */
+    suspend fun playlistSourceByUrl(url: String): PlaylistSourceEntity? = playlistSourceDao.getByUrl(url)
+
     suspend fun upsertPlaylistSource(source: PlaylistSourceEntity) = playlistSourceDao.upsert(source)
+
+    /**
+     * 导入事务：写直播源 + 批量写频道（新增/更新/隐藏）原子完成（ADR-0004）。
+     * 多表写入由 DAO 层 @Transaction 保证。
+     */
+    suspend fun applyImport(
+        source: PlaylistSourceEntity,
+        inserts: List<ChannelEntity>,
+        updates: List<ChannelEntity>,
+        hides: List<ChannelEntity>,
+    ) = channelDao.persistImport(source, inserts, updates, hides)
 
     /** 删除直播源（其频道由外键级联删除，含收藏记录，ADR-0004） */
     suspend fun deletePlaylistSource(id: String) = playlistSourceDao.deleteById(id)

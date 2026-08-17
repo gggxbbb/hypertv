@@ -16,6 +16,10 @@ interface PlaylistSourceDao {
     @Query("SELECT * FROM playlist_sources WHERE id = :id")
     suspend fun getById(id: String): PlaylistSourceEntity?
 
+    /** 按 URL 精确匹配直播源（URL 需调用方归一化），用于重复导入同源时增量合并 */
+    @Query("SELECT * FROM playlist_sources WHERE url = :url LIMIT 1")
+    suspend fun getByUrl(url: String): PlaylistSourceEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(source: PlaylistSourceEntity)
 

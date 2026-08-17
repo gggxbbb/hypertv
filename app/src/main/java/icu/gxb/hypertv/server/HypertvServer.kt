@@ -3,6 +3,7 @@ package icu.gxb.hypertv.server
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import icu.gxb.hypertv.BuildConfig
+import icu.gxb.hypertv.data.repository.HypertvRepository
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
@@ -17,6 +18,7 @@ import javax.inject.Singleton
 @Singleton
 class HypertvServer @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val repository: HypertvRepository,
 ) {
     private var engine: EmbeddedServer<*, *>? = null
 
@@ -31,6 +33,7 @@ class HypertvServer @Inject constructor(
                 hypertvModule(
                     version = BuildConfig.VERSION_NAME,
                     indexHtml = ::readIndexHtml,
+                    playlistStore = HypertvPlaylistImportStore(repository),
                 )
             },
         )

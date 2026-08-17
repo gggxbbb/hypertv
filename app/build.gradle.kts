@@ -64,6 +64,9 @@ dependencies {
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
+    // Ktor client（URL 拉取 M3U 源）
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
     implementation(libs.kotlinx.serialization.json)
     // Hilt
     implementation(libs.hilt.android)
@@ -80,6 +83,7 @@ dependencies {
     // Tests
     testImplementation(libs.junit)
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.client.core)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.room.testing)
