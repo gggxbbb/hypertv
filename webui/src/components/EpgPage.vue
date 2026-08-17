@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, EditPen, Refresh, VideoCamera } from '@element-plus/icons-vue'
 import { api } from '@/api/client'
-import type { EpgChannelCandidate, EpgMatchRule, EpgProgram, EpgSource } from '@/api/types'
+import type { EpgChannelCandidate, EpgChannelNameMap, EpgMatchRule, EpgProgram, EpgSource } from '@/api/types'
 import { useChannelsStore } from '@/stores/channels'
 import { useEpgStore } from '@/stores/epg'
 import { usePolling } from '@/composables/usePolling'
@@ -155,6 +155,21 @@ async function loadRules() {
 const candidates = ref<EpgChannelCandidate[]>([])
 const candidatesLoading = ref(false)
 
+/** EPG 频道目录 id → displayName 映射（候选列表构建，供规则表格/下拉展示） */
+const candidateNameMap = computed<EpgChannelNameMap>(() =>
+  Object.fromEntries(candidates.value.map((c) => [c.epgId, c.displayName])),
+)
+
+/** 下拉选项显示名：displayName (epgId)，filterable 按 label 可同时搜两个字段 */
+function candidateLabel(c: EpgChannelCandidate): string {
+  return `${c.displayName} (${c.epgId})`
+}
+
+/** 规则表格 EPG 频道列：目录里有 displayName 用之，否则回退原 id */
+function ruleChannelLabel(epgChannelId: string): string {
+  return candidateNameMap.value[epgChannelId] ?? epgChannelId
+}
+
 async function loadCandidates() {
   candidatesLoading.value = true
   try {
@@ -197,7 +212,7 @@ async function addRule() {
 
 async function removeRule(r: EpgMatchRule) {
   try {
-    await ElMessageBox.confirm(`确定删除规则「${r.keyword} → ${r.epgChannelId}」？`, '删除规则', {
+    await ElMessageBox.confirm(`确定删除规则「${r.keyword} → ${ruleChannelLabel(r.epgChannelId)}」？`, '删除规则', {
       type: 'warning',
       confirmButtonText: '删除',
       cancelButtonText: '取消',
@@ -270,10 +285,10 @@ function formatLastUpdate(ts: number | null): string {
   return formatTime(ts)
 }
 
-// ---- 轮询同步（ADR-0003）：5s 拉一次配置/规则，刷新进行中也能及时反映完成 ----
+// ---- 轮询同步（ADR-0003）：5s 拉一次配置/规则/候选，刷新进行中也能及时反映完成 ----
 const polling = usePolling(async () => {
   await epgStore.refresh()
-  await loadRules()
+  await Promise.all([loadRules(), loadCandidates()])
 })
 
 onMounted(async () => {
@@ -443,9 +458,19 @@ defineExpose({ refresh: polling.refresh })
           <el-option
             v-for="c in candidates"
             :key="c.epgId"
-            :label="c.channelNames.length > 0 ? `${c.epgId}（${c.channelNames.join('、')}）` : c.epgId"
+            :label="candidateLabel(c)"
             :value="c.epgId"
-          />
+          >
+            <template #default>
+              <div class="candidate-option">
+                <span class="candidate-name">{{ c.displayName }}</span>
+                <span class="candidate-id">({{ c.epgId }})</span>
+                <el-tag v-if="c.matchedCount > 0" size="small" type="success" effect="plain">
+                  命中 {{ c.matchedCount }}
+                </el-tag>
+              </div>
+            </template>
+          </el-option>
         </el-select>
         <el-input v-model="ruleKeyword" placeholder="匹配关键字，如 CCTV-1" clearable class="rule-keyword" @keyup.enter="addRule" />
         <el-select v-model="ruleType" class="rule-type">
@@ -462,7 +487,14 @@ defineExpose({ refresh: polling.refresh })
         class="epg-table"
         :header-cell-style="{ background: '#f9fafb' }"
       >
-        <el-table-column label="EPG 频道 id" prop="epgChannelId" min-width="200" show-overflow-tooltip />
+        <el-table-column label="EPG 频道" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }: { row: EpgMatchRule }">
+            <span>{{ ruleChannelLabel(row.epgChannelId) }}</span>
+            <span v-if="ruleChannelLabel(row.epgChannelId) !== row.epgChannelId" class="rule-epg-id">
+              ({{ row.epgChannelId }})
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column label="匹配关键字" prop="keyword" min-width="160" show-overflow-tooltip />
         <el-table-column label="类型" width="110">
           <template #default="{ row }: { row: EpgMatchRule }">
@@ -606,6 +638,24 @@ defineExpose({ refresh: polling.refresh })
 }
 .rule-channel {
   width: 280px;
+}
+.candidate-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.candidate-option .el-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.candidate-id {
+  color: #9ca3af;
+  font-size: 12px;
+}
+.rule-epg-id {
+  color: #9ca3af;
+  font-size: 12px;
+  margin-left: 4px;
 }
 .rule-keyword {
   width: 200px;

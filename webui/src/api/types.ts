@@ -134,11 +134,21 @@ export interface EpgRuleApplyResult {
   applied: number
 }
 
-/** GET /api/epg/channels 候选列表项：EPG 频道 id + 关联频道名样例（最多 5 个） */
+/** GET /api/epg/channels 候选列表项：EPG 频道目录条目（displayName 供界面辨认，如 id=1 → CCTV1） */
 export interface EpgChannelCandidate {
   epgId: string
+  /** XMLTV 频道展示名（持久化在 epg_channels 目录，刷新后仍可辨认） */
+  displayName: string
+  /** XMLTV 频道台标 */
+  icon: string | null
+  /** 当前 epgId 关联到的本地频道数 */
+  matchedCount: number
+  /** 关联的本地频道名样例（最多 5 个） */
   channelNames: string[]
 }
+
+/** EPG 频道 id → displayName 映射（由 /api/epg/channels 目录构建，用于把裸数字 id 渲染成可读频道名） */
+export type EpgChannelNameMap = Record<string, string>
 
 /** EPG 节目（now/guide 共用） */
 export interface EpgProgram {

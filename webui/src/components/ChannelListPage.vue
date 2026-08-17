@@ -8,7 +8,7 @@ import { useGroupsStore } from '@/stores/groups'
 import { usePolling } from '@/composables/usePolling'
 import { debounce } from '@/composables/useDebounce'
 import { api } from '@/api/client'
-import type { ChannelDTO, EpgChannelCandidate } from '@/api/types'
+import type { ChannelDTO, EpgChannelCandidate, EpgChannelNameMap } from '@/api/types'
 
 const channelsStore = useChannelsStore()
 const groupsStore = useGroupsStore()
@@ -123,6 +123,22 @@ const editingEpgValue = ref('')
 const epgCandidates = ref<EpgChannelCandidate[]>([])
 const epgCandidatesLoading = ref(false)
 
+/** EPG 频道目录 id → displayName 映射（供 EPG 列展示与绑定下拉） */
+const epgNameMap = computed<EpgChannelNameMap>(() =>
+  Object.fromEntries(epgCandidates.value.map((c) => [c.epgId, c.displayName])),
+)
+
+/** 下拉选项显示名：displayName (epgId)，filterable 按 label 可同时搜两个字段 */
+function epgCandidateLabel(c: EpgChannelCandidate): string {
+  return `${c.displayName} (${c.epgId})`
+}
+
+/** EPG 列展示名：目录里有 displayName 用之；未绑定显示「未匹配」；目录缺失的 id 回退原 id */
+function epgDisplayName(epgId: string | null): string {
+  if (!epgId) return '未匹配'
+  return epgNameMap.value[epgId] ?? epgId
+}
+
 async function loadEpgCandidates() {
   epgCandidatesLoading.value = true
   try {
@@ -144,7 +160,7 @@ function commitEpg(id: string, value: string | number | boolean) {
   const epgId = String(value ?? '').trim()
   channelsStore.applyPatch(id, { epgId: epgId ? epgId : null })
   ElMessage.success(
-    epgId ? `已绑定 ${epgId}，手动绑定后不会被导入/刷新覆盖` : '已清除 EPG 绑定',
+    epgId ? `已绑定 ${epgDisplayName(epgId)}（${epgId}），手动绑定后不会被导入/刷新覆盖` : '已清除 EPG 绑定',
   )
   editingEpgId.value = null
 }
@@ -195,7 +211,7 @@ function batchHide(hide: boolean) {
 
 // ---- 轮询同步（5s）+ 操作后立即拉取（ADR-0003）----
 const polling = usePolling(() => {
-  void Promise.all([channelsStore.refresh(), groupsStore.refresh()])
+  void Promise.all([channelsStore.refresh(), groupsStore.refresh(), loadEpgCandidates()])
 })
 
 function onLogoError(e: Event) {
@@ -326,18 +342,28 @@ defineExpose({ refresh: polling.refresh })
               <el-option
                 v-for="c in epgCandidates"
                 :key="c.epgId"
-                :label="c.channelNames.length > 0 ? `${c.epgId}（${c.channelNames.join('、')}）` : c.epgId"
+                :label="epgCandidateLabel(c)"
                 :value="c.epgId"
-              />
+              >
+                <template #default>
+                  <div class="candidate-option">
+                    <span class="candidate-name">{{ c.displayName }}</span>
+                    <span class="candidate-id">({{ c.epgId }})</span>
+                    <el-tag v-if="c.matchedCount > 0" size="small" type="success" effect="plain">
+                      命中 {{ c.matchedCount }}
+                    </el-tag>
+                  </div>
+                </template>
+              </el-option>
             </el-select>
             <span
               v-else
               class="epg-text"
               :class="{ 'epg-unmatched': !ch.epgId }"
-              :title="ch.epgId ? `点击修改；${ch.epgId} 为手动绑定，不会被导入/刷新覆盖` : '点击绑定 EPG 频道'"
+              :title="ch.epgId ? `点击修改；显示的是 EPG 频道名（${ch.epgId} 为手动绑定，不会被导入/刷新覆盖）` : '点击绑定 EPG 频道'"
               @click="startEpgEdit(ch)"
             >
-              {{ ch.epgId || '未匹配' }}
+              {{ epgDisplayName(ch.epgId) }}
             </span>
           </span>
           <el-button
@@ -499,6 +525,19 @@ defineExpose({ refresh: polling.refresh })
 }
 .epg-select {
   width: 180px;
+}
+.candidate-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.candidate-option .el-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.candidate-id {
+  color: #9ca3af;
+  font-size: 12px;
 }
 .epg-text {
   cursor: pointer;
