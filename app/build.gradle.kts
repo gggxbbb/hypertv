@@ -82,8 +82,9 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     // XmlPullParser（XMLTV 流式解析；Android 框架自带同款，JVM 单测需要此实现）
     implementation(libs.kxml2)
-    // Media3 播放器（ExoPlayer 核心 + PlayerView 控件，ticket 04）
+    // Media3 播放器（ExoPlayer 核心 + HLS 支持 + PlayerView 控件）
     implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)
 
     // Tests
