@@ -46,6 +46,7 @@ class HypertvRepositoryTest {
             appConfigDao = db.appConfigDao(),
             epgSourceDao = db.epgSourceDao(),
             epgMatchRuleDao = db.epgMatchRuleDao(),
+            epgChannelDao = db.epgChannelDao(),
         )
     }
 

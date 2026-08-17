@@ -6,6 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import icu.gxb.hypertv.data.dao.AppConfigDao
 import icu.gxb.hypertv.data.dao.ChannelDao
+import icu.gxb.hypertv.data.dao.EpgChannelDao
 import icu.gxb.hypertv.data.dao.EpgMatchRuleDao
 import icu.gxb.hypertv.data.dao.EpgProgramDao
 import icu.gxb.hypertv.data.dao.EpgSourceDao
@@ -13,6 +14,7 @@ import icu.gxb.hypertv.data.dao.GroupDao
 import icu.gxb.hypertv.data.dao.PlaylistSourceDao
 import icu.gxb.hypertv.data.entity.AppConfigEntity
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -32,8 +34,9 @@ import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
         AppConfigEntity::class,
         EpgSourceEntity::class,
         EpgMatchRuleEntity::class,
+        EpgChannelEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class HypertvDatabase : RoomDatabase() {
@@ -44,6 +47,7 @@ abstract class HypertvDatabase : RoomDatabase() {
     abstract fun appConfigDao(): AppConfigDao
     abstract fun epgSourceDao(): EpgSourceDao
     abstract fun epgMatchRuleDao(): EpgMatchRuleDao
+    abstract fun epgChannelDao(): EpgChannelDao
 
     companion object {
         /** v1 → v2：groups 表新增分组级 EPG 源字段（ticket 09），可空无需默认值。 */
@@ -86,6 +90,20 @@ abstract class HypertvDatabase : RoomDatabase() {
                         "SELECT `value`, 1, 0 FROM `app_config` WHERE `key` = 'epg_source_url' AND TRIM(`value`) <> ''",
                 )
                 db.execSQL("DELETE FROM `app_config` WHERE `key` = 'epg_source_url'")
+            }
+        }
+
+        /**
+         * v3 → v4：
+         * - 新表 epg_channels（EPG 频道目录：id=XMLTV 频道 id 主键、displayName、icon）。
+         *   仅新增表，既有表/列不动，迁移即建表。
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `epg_channels` (`id` TEXT NOT NULL, " +
+                        "`displayName` TEXT NOT NULL, `icon` TEXT, PRIMARY KEY(`id`))",
+                )
             }
         }
     }

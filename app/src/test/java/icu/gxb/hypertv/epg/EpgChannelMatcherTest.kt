@@ -166,6 +166,148 @@ class EpgChannelMatcherTest {
         assertEquals(1, result.stats.level1)
         assertEquals(1, result.stats.level2)
         assertEquals(1, result.stats.level3)
+        assertEquals(0, result.stats.level4)
         assertEquals(0.75, result.stats.rate, 0.001)
+    }
+
+    // ---- 第四级：归一化前缀匹配（v4）----
+
+    @Test
+    fun `level4 prefix match hits when suffix starts with chinese`() {
+        // CCTV-2 财经 → EPG CCTV2：后邻「财」（汉字）→ 接受
+        val xmltv = listOf(xmltvChannel("cctv2", "CCTV2"))
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-2 财经", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("cctv2", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_PREFIX, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level4 rejects when prefix followed by digit`() {
+        // CCTV-10 科教 → EPG CCTV1：后邻 '0'（数字且不在白名单）→ 拒绝
+        val xmltv = listOf(xmltvChannel("cctv1", "CCTV1"))
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-10 科教", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertFalse(result.mapping.containsKey("ch-1"))
+        assertEquals(0, result.stats.matched)
+    }
+
+    @Test
+    fun `level4 rejects when prefix followed by non whitelist letter`() {
+        // CCTV-1X 类推：后邻 'x' 字母且不在白名单 → 拒绝
+        val xmltv = listOf(xmltvChannel("cctv1", "CCTV1"))
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-1X", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertFalse(result.mapping.containsKey("ch-1"))
+    }
+
+    @Test
+    fun `level4 accepts whitelist resolution suffix`() {
+        // 欢笑剧场4K → EPG 欢笑剧场：后邻 '4k'（白名单）→ 接受
+        val xmltv = listOf(xmltvChannel("huaixiao", "欢笑剧场"))
+        val channels = listOf(channel(id = "ch-1", name = "欢笑剧场4K", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("huaixiao", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_PREFIX, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level4 accepts hd uhd and cjk resolution combos`() {
+        val xmltv = listOf(
+            xmltvChannel("hd", "CCTV1"),
+            xmltvChannel("uhd", "CCTV5"),
+            xmltvChannel("4k-uhd", "CCTV6"),
+        )
+        val channels = listOf(
+            channel(id = "a", name = "CCTV-1 HD", epgId = null),
+            channel(id = "b", name = "CCTV-5 UHD", epgId = null),
+            channel(id = "c", name = "CCTV-6 4K超高清", epgId = null),
+        )
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("hd", result.mapping["a"])
+        assertEquals("uhd", result.mapping["b"])
+        assertEquals("4k-uhd", result.mapping["c"])
+    }
+
+    @Test
+    fun `level4 longest prefix wins`() {
+        // 欢笑剧场4K：候选 欢笑剧场（长）与 欢笑（短）都前缀命中 → 取更长者
+        val xmltv = listOf(
+            xmltvChannel("short", "欢笑"),
+            xmltvChannel("long", "欢笑剧场"),
+        )
+        val channels = listOf(channel(id = "ch-1", name = "欢笑剧场4K", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("long", result.mapping["ch-1"])
+    }
+
+    @Test
+    fun `level4 preferred longer cctv4k over cctv4 for 4k channel`() {
+        val xmltv = listOf(
+            xmltvChannel("4", "CCTV4"),
+            xmltvChannel("4k", "CCTV4K"),
+        )
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-4K 超高清", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("4k", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_PREFIX, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level4 does not override existing three levels`() {
+        // ch-1 有 epgId 精确命中（即使前缀也命中）
+        val xmltv = listOf(
+            xmltvChannel("exact-id", "CCTV-2 财经"),
+            xmltvChannel("2", "CCTV2"),
+        )
+        val channels = listOf(
+            channel(id = "ch-1", name = "CCTV-2 财经", epgId = "exact-id"),
+        )
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("exact-id", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.EXACT_TVG_ID, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level4 only fires after exact normalized name fails`() {
+        // 频道名与某 display-name 完全相等 → 仍走三级精确，不降级为前缀
+        val xmltv = listOf(xmltvChannel("exact", "CCTV-2 财经"))
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-2 财经", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("exact", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_NAME, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level4 stats are counted separately`() {
+        val xmltv = listOf(xmltvChannel("cctv2", "CCTV2"))
+        val channels = listOf(
+            channel(id = "a", name = "CCTV-2 财经", epgId = null),
+            channel(id = "b", name = "完全无关", epgId = null),
+        )
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals(1, result.stats.level4)
+        assertEquals(1, result.stats.matched)
+        assertEquals(1, result.stats.unmatched)
     }
 }

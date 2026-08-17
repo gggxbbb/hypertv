@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -97,6 +98,11 @@ interface EpgStore {
         end: Long,
     ): List<EpgProgramEntity>
 
-    /** 聚合去重的 EPG 频道 id 列表（GET /api/epg/channels 用） */
-    suspend fun distinctProgramEpgChannelIds(): List<String>
+    // ---- EPG 频道目录（v4）----
+
+    /** 全部持久化的 XMLTV 频道目录（GET /api/epg/channels 用） */
+    suspend fun epgChannelsOnce(): List<EpgChannelEntity>
+
+    /** 批量 upsert XMLTV 频道目录（刷新成功后幂等写入，同 id 覆盖 displayName/icon） */
+    suspend fun upsertEpgChannels(channels: List<EpgChannelEntity>)
 }

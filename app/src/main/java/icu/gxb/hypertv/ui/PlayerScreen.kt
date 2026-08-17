@@ -40,6 +40,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -78,6 +79,7 @@ import kotlinx.coroutines.launch
  * 频道列表浮层：LazyColumn 虚拟化（5000+ 频道），行内 Coil AsyncImage 异步加载台标；
  * 主菜单与收藏列表页以全屏/局部覆盖层叠加在本页之上（简单状态机，不引入导航库）。
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlayerScreen(

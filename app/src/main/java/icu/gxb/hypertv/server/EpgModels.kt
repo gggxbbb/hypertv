@@ -48,6 +48,7 @@ data class EpgMatchStatsDTO(
     val level1: Int,
     val level2: Int,
     val level3: Int,
+    val level4: Int,
     val rate: Double,
 )
 
@@ -58,6 +59,7 @@ fun EpgMatchStats.toDto(): EpgMatchStatsDTO = EpgMatchStatsDTO(
     level1 = level1,
     level2 = level2,
     level3 = level3,
+    level4 = level4,
     rate = rate,
 )
 
@@ -118,10 +120,20 @@ data class EpgRuleApplyResult(
     val applied: Int,
 )
 
-/** GET /api/epg/channels 候选列表项：EPG 频道 id + 关联频道名样例。 */
+/**
+ * GET /api/epg/channels 候选列表项（v4 起从 epg_channels 目录返回，不再聚合 epg_programs）。
+ * 保留原 epgId/channelNames 字段名向后兼容；新增 displayName/icon/matchedCount 供 WebUI 辨认频道。
+ */
 @Serializable
 data class EpgChannelCandidateDTO(
     val epgId: String,
+    /** XMLTV 频道展示名（持久化在 epg_channels，刷新后仍可辨认，如 id=1 → CCTV1） */
+    val displayName: String,
+    /** XMLTV 频道台标 */
+    val icon: String? = null,
+    /** 当前 epgId 关联到的本地频道数 */
+    val matchedCount: Int,
+    /** 关联的本地频道名样例（≤ CANDIDATE_SAMPLE_LIMIT 个，保留原字段名向后兼容） */
     val channelNames: List<String>,
 )
 

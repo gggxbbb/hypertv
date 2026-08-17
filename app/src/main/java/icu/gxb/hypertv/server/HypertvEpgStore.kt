@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -81,8 +82,10 @@ class HypertvEpgStore(
         end: Long,
     ): List<EpgProgramEntity> = repository.programsByChannelEpgIdOnce(channelEpgId, start, end)
 
-    override suspend fun distinctProgramEpgChannelIds(): List<String> =
-        repository.distinctProgramEpgChannelIds()
+    override suspend fun epgChannelsOnce(): List<EpgChannelEntity> = repository.epgChannelsOnce()
+
+    override suspend fun upsertEpgChannels(channels: List<EpgChannelEntity>) =
+        repository.upsertEpgChannels(channels)
 
     companion object {
         /** app_config 键（v3 起全局源改存 epg_sources 表，旧 epg_source_url 键已废弃）。 */

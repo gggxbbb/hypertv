@@ -2,12 +2,14 @@ package icu.gxb.hypertv.data.repository
 
 import icu.gxb.hypertv.data.dao.AppConfigDao
 import icu.gxb.hypertv.data.dao.ChannelDao
+import icu.gxb.hypertv.data.dao.EpgChannelDao
 import icu.gxb.hypertv.data.dao.EpgMatchRuleDao
 import icu.gxb.hypertv.data.dao.EpgProgramDao
 import icu.gxb.hypertv.data.dao.EpgSourceDao
 import icu.gxb.hypertv.data.dao.GroupDao
 import icu.gxb.hypertv.data.dao.PlaylistSourceDao
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -30,6 +32,7 @@ class HypertvRepository(
     private val appConfigDao: AppConfigDao,
     private val epgSourceDao: EpgSourceDao,
     private val epgMatchRuleDao: EpgMatchRuleDao,
+    private val epgChannelDao: EpgChannelDao,
 ) {
 
     // ---- 频道 ----
@@ -219,6 +222,11 @@ class HypertvRepository(
 
     suspend fun deleteEpgMatchRule(id: Long) = epgMatchRuleDao.deleteById(id)
 
-    /** 聚合去重的 EPG 频道 id（供规则页候选列表） */
-    suspend fun distinctProgramEpgChannelIds(): List<String> = epgProgramDao.getDistinctChannelEpgIds()
+    // ---- EPG 频道目录（v4）----
+
+    /** 全部持久化的 XMLTV 频道目录（GET /api/epg/channels 用） */
+    suspend fun epgChannelsOnce(): List<EpgChannelEntity> = epgChannelDao.getAllOnce()
+
+    /** 批量 upsert XMLTV 频道目录（刷新成功后幂等写入，同 id 覆盖 displayName/icon） */
+    suspend fun upsertEpgChannels(channels: List<EpgChannelEntity>) = epgChannelDao.upsertAll(channels)
 }

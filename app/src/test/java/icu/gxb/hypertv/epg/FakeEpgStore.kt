@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -17,6 +18,7 @@ class FakeEpgStore : EpgStore {
     val programs = mutableListOf<EpgProgramEntity>()
     val sources = mutableListOf<EpgSourceEntity>()
     val rules = mutableListOf<EpgMatchRuleEntity>()
+    val epgChannels = mutableListOf<EpgChannelEntity>()
 
     var lastUpdate: Long? = null
 
@@ -139,6 +141,14 @@ class FakeEpgStore : EpgStore {
         programs.filter { it.channelEpgId == channelEpgId && it.startTime < end && it.endTime > start }
             .sortedBy { it.startTime }
 
-    override suspend fun distinctProgramEpgChannelIds(): List<String> =
-        programs.map { it.channelEpgId }.distinct().sorted()
+    // ---- EPG 频道目录（v4）----
+
+    override suspend fun epgChannelsOnce(): List<EpgChannelEntity> = epgChannels.toList()
+
+    override suspend fun upsertEpgChannels(channels: List<EpgChannelEntity>) {
+        channels.forEach { ch ->
+            epgChannels.removeAll { it.id == ch.id }
+            epgChannels.add(ch)
+        }
+    }
 }

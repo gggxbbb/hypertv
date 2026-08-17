@@ -1,5 +1,6 @@
 package icu.gxb.hypertv.server
 
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.epg.EpgRefreshService
 import icu.gxb.hypertv.epg.EpgStore
@@ -40,7 +41,7 @@ import java.time.format.DateTimeParseException
  * - POST /api/epg/rules             新增匹配规则
  * - DELETE /api/epg/rules/{id}      删除匹配规则
  * - POST /api/epg/rules/apply       立即应用全部规则到频道
- * - GET  /api/epg/channels          EPG 频道候选列表（epg_programs 聚合 + 关联频道名样例）
+ * - GET  /api/epg/channels          EPG 频道候选列表（epg_channels 目录 + displayName/icon/matchedCount）
  * - GET  /api/epg/now               Map<channelId, 当前节目>
  * - GET  /api/epg/guide             某频道某天的节目表
  *
@@ -199,19 +200,41 @@ fun Application.epgModule(
 
         // ---- EPG 频道候选列表（规则页下拉 / 命中频道展示）----
         get("/api/epg/channels") {
-            val epgIds = epgStore.distinctProgramEpgChannelIds()
-            if (epgIds.isEmpty()) {
+            val catalog = epgStore.epgChannelsOnce()
+            if (catalog.isEmpty()) {
                 call.respond(HttpStatusCode.OK, emptyList<EpgChannelCandidateDTO>())
                 return@get
             }
-            val namesByEpgId = epgStore.channels()
+            // matched 信息仍查频道表：matchedCount = 当前 epgId 关联的频道数，channelNames = 频道名样例
+            val channels = epgStore.channels()
+            val byEpgId = channels
+                .mapNotNull { it.epgId?.trim()?.takeIf { id -> id.isNotEmpty() } }
+                .groupingBy { it }
+                .eachCount()
+            val namesByEpgId = channels
                 .groupBy { it.epgId?.trim()?.takeIf { id -> id.isNotEmpty() } }
                 .filterKeys { it != null }
                 .mapKeys { (key, _) -> key!! }
-                .mapValues { (_, channels) -> channels.map { it.name }.distinct().take(CANDIDATE_SAMPLE_LIMIT) }
+                .mapValues { (_, chs) -> chs.map { it.name }.distinct().take(CANDIDATE_SAMPLE_LIMIT) }
+            // 排序：数字 id 按数字序在前（EPG id 多为数字），非数字 id 按 displayName 字典序
+            val sorted = catalog.sortedWith(
+                compareBy<EpgChannelEntity>(
+                    { it.id.toLongOrNull() == null },
+                    { it.id.toLongOrNull() ?: Long.MAX_VALUE },
+                    { it.displayName },
+                ),
+            )
             call.respond(
                 HttpStatusCode.OK,
-                epgIds.map { id -> EpgChannelCandidateDTO(epgId = id, channelNames = namesByEpgId[id].orEmpty()) },
+                sorted.map { ch ->
+                    EpgChannelCandidateDTO(
+                        epgId = ch.id,
+                        displayName = ch.displayName,
+                        icon = ch.icon,
+                        matchedCount = byEpgId[ch.id] ?: 0,
+                        channelNames = namesByEpgId[ch.id].orEmpty(),
+                    )
+                },
             )
         }
 

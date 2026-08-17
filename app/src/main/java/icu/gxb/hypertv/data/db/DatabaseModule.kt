@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import icu.gxb.hypertv.data.dao.AppConfigDao
 import icu.gxb.hypertv.data.dao.ChannelDao
+import icu.gxb.hypertv.data.dao.EpgChannelDao
 import icu.gxb.hypertv.data.dao.EpgMatchRuleDao
 import icu.gxb.hypertv.data.dao.EpgProgramDao
 import icu.gxb.hypertv.data.dao.EpgSourceDao
@@ -25,7 +26,11 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HypertvDatabase =
         Room.databaseBuilder(context, HypertvDatabase::class.java, "hypertv.db")
-            .addMigrations(HypertvDatabase.MIGRATION_1_2, HypertvDatabase.MIGRATION_2_3)
+            .addMigrations(
+                HypertvDatabase.MIGRATION_1_2,
+                HypertvDatabase.MIGRATION_2_3,
+                HypertvDatabase.MIGRATION_3_4,
+            )
             .build()
 
     @Provides
@@ -50,6 +55,9 @@ object DatabaseModule {
     fun provideEpgMatchRuleDao(db: HypertvDatabase): EpgMatchRuleDao = db.epgMatchRuleDao()
 
     @Provides
+    fun provideEpgChannelDao(db: HypertvDatabase): EpgChannelDao = db.epgChannelDao()
+
+    @Provides
     @Singleton
     fun provideRepository(
         channelDao: ChannelDao,
@@ -59,6 +67,7 @@ object DatabaseModule {
         appConfigDao: AppConfigDao,
         epgSourceDao: EpgSourceDao,
         epgMatchRuleDao: EpgMatchRuleDao,
+        epgChannelDao: EpgChannelDao,
     ): HypertvRepository = HypertvRepository(
         channelDao = channelDao,
         groupDao = groupDao,
@@ -67,5 +76,6 @@ object DatabaseModule {
         appConfigDao = appConfigDao,
         epgSourceDao = epgSourceDao,
         epgMatchRuleDao = epgMatchRuleDao,
+        epgChannelDao = epgChannelDao,
     )
 }

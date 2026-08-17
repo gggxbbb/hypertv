@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.m3u.EncodingDetector
 import java.io.ByteArrayInputStream
@@ -144,6 +145,19 @@ class EpgRefresher(
         return try {
             withContext(Dispatchers.IO) {
                 val (parsed, warnings) = fetchAndMerge(urls)
+
+                // 持久化 EPG 频道目录（v4）：合并结果的 XMLTV 频道幂等 upsert，与节目解耦，
+                // 作用域清旧/过期清理都不删目录；重复刷新同 id 覆盖 displayName/icon。
+                store.upsertEpgChannels(
+                    parsed.channels.map { ch ->
+                        EpgChannelEntity(
+                            id = ch.id,
+                            displayName = ch.displayNames.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: ch.id,
+                            icon = ch.iconUrl,
+                        )
+                    },
+                )
+
                 val match = matcher.match(parsed.channels, channels)
 
                 // 先清该作用域旧数据（按频道当前 epgId），再批量写入新节目

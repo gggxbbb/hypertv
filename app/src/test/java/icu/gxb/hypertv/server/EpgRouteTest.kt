@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -494,13 +495,13 @@ class EpgRouteTest {
     // ---- GET /api/epg/channels ----
 
     @Test
-    fun `get epg channels returns aggregated ids with sample names`() = testApplication {
+    fun `get epg channels returns catalog with display name and match info`() = testApplication {
         val store = FakeEpgStore().apply {
-            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
-            channels += channel("ch-2", "CCTV-1 HD", epgId = "cctv1.example")
-            programs += program("p1", "cctv1.example", 1000, 2000)
-            programs += program("p2", "cctv1.example", 2000, 3000)
-            programs += program("p3", "cctv5.example", 1000, 2000)
+            epgChannels += EpgChannelEntity(id = "1", displayName = "CCTV1", icon = null)
+            epgChannels += EpgChannelEntity(id = "2", displayName = "CCTV2", icon = null)
+            epgChannels += EpgChannelEntity(id = "cctv5.example", displayName = "CCTV-5 体育", icon = "http://icons.example.com/5.png")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "1")
+            channels += channel("ch-2", "CCTV-1 HD", epgId = "1")
         }
         epgApp(store)
 
@@ -508,10 +509,43 @@ class EpgRouteTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         val list = json.decodeFromString<List<EpgChannelCandidateDTO>>(response.bodyAsText())
-        assertEquals(listOf("cctv1.example", "cctv5.example"), list.map { it.epgId })
-        val cctv1 = list.first { it.epgId == "cctv1.example" }
+        // 数字 id 按数字序在前，非数字 id 在后
+        assertEquals(listOf("1", "2", "cctv5.example"), list.map { it.epgId })
+        val cctv1 = list.first { it.epgId == "1" }
+        assertEquals("CCTV1", cctv1.displayName)
+        assertEquals(2, cctv1.matchedCount)
         assertEquals(setOf("CCTV-1 综合", "CCTV-1 HD"), cctv1.channelNames.toSet())
-        assertTrue(list.first { it.epgId == "cctv5.example" }.channelNames.isEmpty())
+        val cctv5 = list.first { it.epgId == "cctv5.example" }
+        assertEquals("CCTV-5 体育", cctv5.displayName)
+        assertEquals("http://icons.example.com/5.png", cctv5.icon)
+        assertEquals(0, cctv5.matchedCount)
+        assertTrue(cctv5.channelNames.isEmpty())
+    }
+
+    @Test
+    fun `get epg channels sorts numeric ids numerically`() = testApplication {
+        val store = FakeEpgStore().apply {
+            epgChannels += EpgChannelEntity(id = "10", displayName = "CCTV10", icon = null)
+            epgChannels += EpgChannelEntity(id = "2", displayName = "CCTV2", icon = null)
+            epgChannels += EpgChannelEntity(id = "1", displayName = "CCTV1", icon = null)
+        }
+        epgApp(store)
+
+        val response = client.get("/api/epg/channels")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val list = json.decodeFromString<List<EpgChannelCandidateDTO>>(response.bodyAsText())
+        assertEquals(listOf("1", "2", "10"), list.map { it.epgId })
+    }
+
+    @Test
+    fun `get epg channels returns empty when catalog is empty`() = testApplication {
+        epgApp() // 无频道目录、无节目
+
+        val response = client.get("/api/epg/channels")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(json.decodeFromString<List<EpgChannelCandidateDTO>>(response.bodyAsText()).isEmpty())
     }
 
     // ---- GET /api/epg/now ----

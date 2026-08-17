@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.data.entity.EpgSourceEntity
@@ -520,6 +521,99 @@ class EpgRefresherTest {
         val result = refresher.refreshGlobal()
 
         assertEquals(1, result.programsWritten)
+    }
+
+    // ---- v4：EPG 频道目录持久化 ----
+
+    @Test
+    fun `refresh upserts epg channel catalog with display name and icon`() = runTest {
+        val xml = """
+            <tv>
+              <channel id="cctv1.example">
+                <display-name>CCTV-1 综合</display-name>
+                <icon src="http://icons.example.com/1.png"/>
+              </channel>
+              <channel id="cctv2.example"><display-name>CCTV-2 财经</display-name></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv1.example">
+                <title>新闻联播</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+        }
+        val refresher = refresher(store, fetcher = { xml.toByteArray() })
+
+        refresher.refreshGlobal()
+
+        // 合并结果的全部 XMLTV 频道进目录（含无 icon 的），id 为 XMLTV 频道 id
+        val catalog = store.epgChannels
+        assertEquals(2, catalog.size)
+        val cctv1 = catalog.first { it.id == "cctv1.example" }
+        assertEquals("CCTV-1 综合", cctv1.displayName)
+        assertEquals("http://icons.example.com/1.png", cctv1.icon)
+        val cctv2 = catalog.first { it.id == "cctv2.example" }
+        assertEquals("CCTV-2 财经", cctv2.displayName)
+        assertNull(cctv2.icon)
+    }
+
+    @Test
+    fun `repeated refresh overwrites epg channel catalog idempotently`() = runTest {
+        val firstXml = """
+            <tv>
+              <channel id="cctv1.example"><display-name>CCTV-1 综合</display-name>
+                <icon src="http://icons.example.com/a.png"/></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv1.example">
+                <title>新闻联播</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val secondXml = """
+            <tv>
+              <channel id="cctv1.example"><display-name>CCTV-1 综合频道</display-name>
+                <icon src="http://icons.example.com/b.png"/></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv1.example">
+                <title>新闻联播</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+        }
+        var content = firstXml
+        val refresher = refresher(store, fetcher = { content.toByteArray() })
+
+        refresher.refreshGlobal()
+        content = secondXml
+        refresher.refreshGlobal()
+
+        // 幂等覆盖：同 id 只有一条，displayName/icon 取最近一次
+        assertEquals(1, store.epgChannels.size)
+        val updated = store.epgChannels.single()
+        assertEquals("CCTV-1 综合频道", updated.displayName)
+        assertEquals("http://icons.example.com/b.png", updated.icon)
+    }
+
+    @Test
+    fun `fetch failure does not touch epg channel catalog`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+            epgChannels += EpgChannelEntity(id = "keep.example", displayName = "保留", icon = null)
+        }
+        val refresher = refresher(store, fetcher = { throw EpgException("连接超时") })
+
+        try {
+            refresher.refreshGlobal()
+            fail("应抛出 EpgException")
+        } catch (_: EpgException) {
+        }
+
+        // 拉取失败不写目录：既有目录保留
+        assertEquals(1, store.epgChannels.size)
+        assertEquals("keep.example", store.epgChannels.single().id)
     }
 
     /** gzip 压缩工具：模拟 .gz 源返回的压缩字节 */
