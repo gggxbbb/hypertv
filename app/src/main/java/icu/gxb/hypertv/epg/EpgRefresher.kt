@@ -3,6 +3,8 @@ package icu.gxb.hypertv.epg
 import icu.gxb.hypertv.data.entity.ChannelEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.m3u.EncodingDetector
+import java.io.ByteArrayInputStream
+import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -191,7 +193,7 @@ class EpgRefresher(
         val warnings = mutableListOf<String>()
         for (url in urls) {
             try {
-                val bytes = fetcher(url)
+                val bytes = gunzipIfNeeded(fetcher(url))
                 val text = encodingDetector.decode(bytes)
                 results += parser.parse(text)
             } catch (e: Exception) {
@@ -202,6 +204,16 @@ class EpgRefresher(
             throw EpgException(warnings.lastOrNull() ?: "没有可用的 EPG 源")
         }
         return mergeParseResults(results) to warnings
+    }
+
+    /**
+     * gzip 魔数检测（0x1f 0x8b）后解压；明文直接返回。
+     * 兼容两类真实源：服务器直接返回 .gz 压缩流（如 epg.51zmt.top/e1.xml.gz），
+     * 以及 Content-Encoding 已解压/明文 XML（同站 e.xml.gz）。
+     */
+    internal fun gunzipIfNeeded(bytes: ByteArray): ByteArray {
+        if (bytes.size < 2 || bytes[0] != 0x1f.toByte() || bytes[1] != 0x8b.toByte()) return bytes
+        return GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
     }
 
     /**

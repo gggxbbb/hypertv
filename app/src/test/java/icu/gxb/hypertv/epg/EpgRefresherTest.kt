@@ -491,4 +491,41 @@ class EpgRefresherTest {
         // 未来时间戳（时钟异常）→ 视为超过阈值，刷新
         assertTrue(EpgRefresher.shouldAutoRefresh(now + 1000, now, threshold))
     }
+
+    @Test
+    fun `gzip encoded source is decompressed before parsing`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/e1.xml.gz")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+        }
+        val gzipped = gzip(xmltvXml)
+        assertTrue(gzipped.size > 2 && gzipped[0] == 0x1f.toByte() && gzipped[1] == 0x8b.toByte())
+        val refresher = refresher(store, fetcher = { gzipped })
+
+        val result = refresher.refreshGlobal()
+
+        // 只有 ch-1 匹配（cctv1.example），xmltvXml 中该频道 1 条节目
+        assertEquals(1, result.programsWritten)
+        assertEquals("cctv1.example", store.programs.single().channelEpgId)
+    }
+
+    @Test
+    fun `plain xml source is not corrupted by gunzip`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/e.xml.gz")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+        }
+        val refresher = refresher(store, fetcher = { xmltvXml.toByteArray() })
+
+        val result = refresher.refreshGlobal()
+
+        assertEquals(1, result.programsWritten)
+    }
+
+    /** gzip 压缩工具：模拟 .gz 源返回的压缩字节 */
+    private fun gzip(text: String): ByteArray {
+        val bos = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(bos).use { it.write(text.toByteArray()) }
+        return bos.toByteArray()
+    }
 }
