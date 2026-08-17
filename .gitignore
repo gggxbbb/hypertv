@@ -14,6 +14,8 @@ captures/
 *.apk
 *.aab
 *.hprof
+# release 打包产物（APK + baselineProfiles + metadata）
+app/release/
 
 # 签名文件（绝不提交）
 *.keystore
