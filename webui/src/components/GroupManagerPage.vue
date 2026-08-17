@@ -102,7 +102,8 @@ const groupChannels = computed(() =>
   selectedGroup.value ? channelsStore.channels.filter((c) => c.groupName === selectedGroup.value) : [],
 )
 const poolChannels = computed(() =>
-  selectedGroup.value ? channelsStore.channels.filter((c) => c.groupName !== selectedGroup.value) : [],
+  // 待分配池 = 未分组频道（groupName 为空），而非"非当前分组的全部频道"
+  channelsStore.channels.filter((c) => !c.groupName),
 )
 
 const groupRows2 = ref<ChannelDTO[]>([])
@@ -242,7 +243,7 @@ defineExpose({ refresh: polling.refresh })
               <VueDraggable
                 v-model="groupRows2"
                 class="draggable-list"
-                :group="{ name: 'channels', pull: false, put: true }"
+                :group="{ name: 'channels', pull: true, put: true }"
                 :sort="false"
                 ghost-class="drag-ghost"
                 chosen-class="drag-chosen"
