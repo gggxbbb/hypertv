@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v1 核心场景：播放 http:// 直播源 + 局域网访问内嵌 WebUI。
+    整体放行明文流量（base-config cleartextTrafficPermitted=true）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

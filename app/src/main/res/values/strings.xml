@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">HyperTV</string>
+
+    <!-- 内嵌服务前台通知 -->
+    <string name="server_channel_name">内嵌服务</string>
+    <string name="server_channel_description">承载 HyperTV WebUI 的内嵌 HTTP 服务</string>
+    <string name="server_notification_title">HyperTV 服务运行中</string>
+    <string name="server_notification_text">WebUI: %1$s</string>
 </resources>
