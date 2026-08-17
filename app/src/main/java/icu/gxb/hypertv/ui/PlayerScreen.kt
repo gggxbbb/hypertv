@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.focusable
@@ -467,13 +468,13 @@ fun PlayerScreen(
             }
         }
 
-        // 频道列表浮层（左右两栏半透明面板：左栏分组+频道列表，右栏 EPG 时间轴）
+        // 频道列表浮层（全高：左栏分组+频道列表占满，右栏顶部一条 EPG 时间轴）
         AnimatedVisibility(
             visible = overlay.isOpen,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .fillMaxHeight(OVERLAY_HEIGHT_FRACTION),
+                .fillMaxSize(),
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -564,15 +565,14 @@ private fun ChannelListPanel(
     epgTimeline: ChannelEpgTimelineState,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = PANEL_BG_ALPHA)),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        // 左栏：分组标签行 + 频道列表
+        // 左栏：分组标签行 + 频道列表（全高，半透明背景遮住视频便于聚焦）
         Column(
             modifier = Modifier
                 .weight(LEFT_COLUMN_WEIGHT)
                 .fillMaxHeight()
+                .background(Color.Black.copy(alpha = PANEL_BG_ALPHA))
                 .padding(vertical = 16.dp),
         ) {
             // 分组标签行（"收藏" → "全部" → 各分组）
@@ -632,19 +632,22 @@ private fun ChannelListPanel(
             }
         }
 
-        // 左栏与右栏分隔线
+        // 左栏与右栏分隔线（只到右栏 EPG 面板高度）
         Box(
             modifier = Modifier
                 .width(1.dp)
-                .fillMaxHeight()
+                .height(EPG_PANEL_HEIGHT)
                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = DIVIDER_ALPHA)),
         )
 
-        // 右栏：选中频道信息 + EPG 时间轴（选中频道变化时由 PlayerScreen 驱动数据加载）
+        // 右栏：选中频道信息 + EPG 时间轴（顶部矮条，够显示时间轴即可，下方露出视频）
         ChannelEpgTimeline(
             channel = selectedChannel,
             epgTimeline = epgTimeline,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
+            modifier = Modifier
+                .weight(1f)
+                .height(EPG_PANEL_HEIGHT)
+                .background(Color.Black.copy(alpha = PANEL_BG_ALPHA)),
         )
     }
 }
@@ -918,8 +921,8 @@ private const val FAVORITE_HINT_BG_ALPHA = 0.8f
 private const val NUMBER_BG_ALPHA = 0.8f
 private const val PANEL_BG_ALPHA = 0.75f
 
-/** 浮层高度占屏比例 */
-private const val OVERLAY_HEIGHT_FRACTION = 0.72f
+/** 右栏 EPG 时间轴面板高度（矮条：频道名 + 现在播出 + 时间轴，够用即可，下方露出视频） */
+private val EPG_PANEL_HEIGHT = 190.dp
 
 /** 浮层左栏宽度权重（右栏为剩余区域） */
 private const val LEFT_COLUMN_WEIGHT = 0.58f
