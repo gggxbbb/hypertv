@@ -44,6 +44,18 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var server: HypertvServer
 
+    /** 重新进入播放页：若上次退出已停止播放，则自动恢复到上次频道（播放中则跳过） */
+    override fun onStart() {
+        super.onStart()
+        playerController.resumeIfIdle()
+    }
+
+    /** 退出播放页即停止播放，避免进程被前台服务保活时后台继续出声 */
+    override fun onDestroy() {
+        playerController.stop()
+        super.onDestroy()
+    }
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
