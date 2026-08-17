@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,7 +30,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -186,43 +184,7 @@ internal fun EpgGuideScreen(
     }
 }
 
-/** 时间轴头部：每 1 小时一格，格宽 = gridWidthPx / 6，显示整点刻度。 */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun TimelineTicks(
-    windowStartMs: Long,
-    gridWidthPx: Float,
-    gridLineColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    Row(modifier = modifier) {
-        for (i in 0 until WINDOW_DURATION_HOURS) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .drawBehind {
-                        if (i > 0) {
-                            drawLine(
-                                color = gridLineColor,
-                                start = Offset(0f, 0f),
-                                end = Offset(0f, size.height),
-                                strokeWidth = 1f,
-                            )
-                        }
-                    },
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                Text(
-                    text = formatHourTick(windowStartMs + i * HOUR_MS),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-                )
-            }
-        }
-    }
-}
+/** 时间轴头部与单频道节目条区域复用 [TimelineTicks] / [GuideProgramRow]（GuideTimelineComponents.kt）。 */
 
 /** 网格行：左侧频道单元 + 右侧节目条。焦点高亮整行。 */
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -319,85 +281,9 @@ private fun GuideChannelCell(
 }
 
 /**
- * 右侧节目条区域：节目按 start/end 映射到水平位置与宽度（offset/width 比例定位），
- * 行内 Box 裁剪避免越界。无节目（未匹配 EPG）时显示浅色占位。
+ * 右侧节目条区域：复用共享组件 [GuideProgramRow]（GuideTimelineComponents.kt），
+ * 节目按 start/end 映射到水平位置与宽度，行内 Box 裁剪避免越界。
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun GuideProgramRow(
-    programs: List<EpgProgramEntity>,
-    windowStartMs: Long,
-    gridWidthPx: Float,
-    gridLineColor: Color,
-    currentTimeX: Float?,
-    isFocused: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val density = LocalDensity.current
-    Box(
-        modifier = modifier
-            .clipToBounds()
-            .drawBehind {
-                // 小时分界竖线 + 当前时间线
-                val hourWidth = size.width / WINDOW_DURATION_HOURS
-                for (i in 1 until WINDOW_DURATION_HOURS) {
-                    drawLine(
-                        color = gridLineColor,
-                        start = Offset(i * hourWidth, 0f),
-                        end = Offset(i * hourWidth, size.height),
-                        strokeWidth = 1f,
-                    )
-                }
-                if (currentTimeX != null && currentTimeX in 0f..size.width) {
-                    drawLine(
-                        color = CURRENT_TIME_COLOR,
-                        start = Offset(currentTimeX, 0f),
-                        end = Offset(currentTimeX, size.height),
-                        strokeWidth = 2f,
-                    )
-                }
-            },
-    ) {
-        if (programs.isEmpty()) {
-            Text(
-                text = "无节目信息",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
-            )
-        } else {
-            programs.forEach { prog ->
-                val layout = layoutProgram(
-                    windowStartMs = windowStartMs,
-                    windowEndMs = windowStartMs + WINDOW_DURATION_MS,
-                    programStart = prog.startTime,
-                    programEnd = prog.endTime,
-                    gridWidthPx = gridWidthPx,
-                ) ?: return@forEach
-                Box(
-                    modifier = Modifier
-                        .offset(x = with(density) { layout.x.toDp() })
-                        .width(with(density) { layout.width.toDp() })
-                        .fillMaxHeight()
-                        .padding(horizontal = 1.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(
-                            if (isFocused) PROGRAM_BAR_FOCUS_COLOR else PROGRAM_BAR_COLOR,
-                        ),
-                ) {
-                    Text(
-                        text = prog.title,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 6.dp),
-                    )
-                }
-            }
-        }
-    }
-}
 
 private const val CHANNEL_COLUMN_WIDTH_DP = 160
 private val CHANNEL_COLUMN_WIDTH = CHANNEL_COLUMN_WIDTH_DP.dp
@@ -408,7 +294,4 @@ private const val CURRENT_BG_ALPHA = 0.18f
 private const val GRID_LINE_ALPHA = 0.14f
 private const val NUMBER_TEXT_ALPHA = 0.6f
 
-private val PROGRAM_BAR_COLOR = Color(0xFF3D6FA3)
-private val PROGRAM_BAR_FOCUS_COLOR = Color(0xFF5A8EC2)
-private val CURRENT_TIME_COLOR = Color(0xFFFFD740)
 private val LOGO_PLACEHOLDER_COLOR = Color(0xFF3A3A3A)

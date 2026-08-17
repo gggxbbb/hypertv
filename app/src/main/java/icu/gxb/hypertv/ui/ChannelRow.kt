@@ -25,7 +25,7 @@ import icu.gxb.hypertv.player.Channel
 
 /**
  * 频道行：频道号（orderIndex+1，固定宽度样式）+ 台标（统一占位灰块 + Coil 异步加载）+ 频道名。
- * 频道列表浮层与收藏列表页共用（ticket 06）。
+ * 收藏频道行尾显示 ★ 标记。频道列表浮层与收藏列表页共用（ticket 06，浮层重构）。
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -76,8 +76,18 @@ internal fun ChannelRow(
             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 16.dp),
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 16.dp),
         )
+        // 收藏标记（行尾 ★）
+        if (channel.isFavorite) {
+            Text(
+                text = "★",
+                color = FAVORITE_STAR_COLOR,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
     }
 }
 
@@ -87,3 +97,6 @@ private const val NUMBER_TEXT_ALPHA = 0.6f
 
 /** 台标统一占位灰块颜色 */
 private val LOGO_PLACEHOLDER_COLOR = Color(0xFF3A3A3A)
+
+/** 收藏标记 ★ 颜色（金色） */
+private val FAVORITE_STAR_COLOR = Color(0xFFFFD740)

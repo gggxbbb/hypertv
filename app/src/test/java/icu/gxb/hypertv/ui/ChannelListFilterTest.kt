@@ -5,8 +5,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * 频道列表浮层的分组过滤纯逻辑单测（ticket 05）。
- * 覆盖：标签序列构造、"全部/收藏/分组"过滤正确性、未知标签防御。
+ * 频道列表浮层的分组过滤纯逻辑单测（ticket 05，浮层重构）。
+ * 覆盖：标签序列构造（收藏第一个）、"全部/收藏/分组"过滤正确性、未知标签防御。
  */
 class ChannelListFilterTest {
 
@@ -20,17 +20,17 @@ class ChannelListFilterTest {
     )
 
     @Test
-    fun `tabs are all then groups then favorites`() {
+    fun `tabs are favorites first then all then groups`() {
         assertEquals(
-            listOf(ChannelListFilter.TAB_ALL, "新闻", "体育", ChannelListFilter.TAB_FAVORITES),
+            listOf(ChannelListFilter.TAB_FAVORITES, ChannelListFilter.TAB_ALL, "新闻", "体育"),
             ChannelListFilter.tabs(listOf("新闻", "体育")),
         )
     }
 
     @Test
-    fun `tabs with no groups are all and favorites only`() {
+    fun `tabs with no groups are favorites and all only`() {
         assertEquals(
-            listOf(ChannelListFilter.TAB_ALL, ChannelListFilter.TAB_FAVORITES),
+            listOf(ChannelListFilter.TAB_FAVORITES, ChannelListFilter.TAB_ALL),
             ChannelListFilter.tabs(emptyList()),
         )
     }

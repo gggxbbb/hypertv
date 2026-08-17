@@ -8,10 +8,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -70,17 +72,20 @@ import kotlinx.coroutines.launch
  *   主菜单/收藏列表页内移动对应列表焦点
  * - OK：浮层收起且无数字输入时呼出频道列表浮层；浮层内确认选中频道并换台收起；
  *   有数字输入时确认数字跳转；主菜单内确认进入收藏列表；收藏列表页内确认播放并返回
- * - 左右键：浮层内切换分组标签（全部/各分组/收藏），回绕；收藏列表页内无功能（spec 7.2）
+ * - 左右键：浮层内切换分组标签（收藏/全部/各分组），回绕；收藏列表页内无功能（spec 7.2）
  * - 数字键（0-9 / 数字小键盘）：播放页输入全局频道号，OK 确认或 2s 无按键自动跳转；
  *   主菜单/收藏列表页内无功能（不累积输入）
- * - 星号键（*）/ 红色功能键（ticket 06）：播放页切换当前播放频道收藏；浮层打开时
+ * - 星号键（*）/ 红色功能键 / Bookmark 键：播放页切换当前播放频道收藏；浮层打开时
  *   切换浮层焦点频道收藏；收藏列表页内切换焦点频道收藏，均显示短暂提示
  * - Menu 键（ticket 06）：播放页呼出主菜单（半透明面板），上下键移动焦点、OK 进入
  *   节目表/收藏列表/关于（回放为 v2 占位不可聚焦）、返回键关闭回到播放页
  * - 返回键：浮层内仅收起不换台；主菜单/收藏列表页/关于页内关闭回到播放页；浮层外先取消数字输入
  *
- * 频道列表浮层：LazyColumn 虚拟化（5000+ 频道），行内 Coil AsyncImage 异步加载台标；
- * 主菜单与收藏列表页以全屏/局部覆盖层叠加在本页之上（简单状态机，不引入导航库）。
+ * 频道列表浮层（左右两栏）：左栏 = 分组标签行（收藏第一个）+ 频道列表
+ * （LazyColumn 虚拟化 5000+ 频道，行内 Coil AsyncImage 异步加载台标，收藏 ★ 标记）；
+ * 右栏 = 选中频道信息 + EPG 时间轴（复用 GuideTimeline 纯函数与 Guide 共享绘制组件，
+ * 选中频道变化时查 ±3h 窗口节目）。主菜单与收藏列表页以全屏/局部覆盖层叠加在本页之上
+ * （简单状态机，不引入导航库）。
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -106,6 +111,10 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val overlay = remember { ChannelListOverlayState() }
+    // 浮层右栏 EPG 时间轴数据：生产注入 Room 一次性查询（选中频道变化时加载 ±3h 窗口节目）
+    val epgTimeline = remember {
+        ChannelEpgTimelineState { epgId, start, end -> repository.programsByChannelEpgIdOnce(epgId, start, end) }
+    }
     val numberInput = remember { ChannelNumberController(scope) }
     val menu = remember { MainMenuState() }
     val favoritesScreen = remember { FavoritesScreenState() }
@@ -159,6 +168,8 @@ fun PlayerScreen(
     val filteredChannels = remember(channels, overlay.selectedTab) {
         ChannelListFilter.filter(channels, overlay.selectedTab)
     }
+    // 右栏 EPG 时间轴的选中频道 = 浮层焦点频道
+    val focusedChannel = filteredChannels.firstOrNull { it.id == overlay.focusedChannelId }
 
     // 数字跳转：复用 PlayerController.switchToIndex（频道号 = index + 1，超范围取模回绕）
     val latestChannels by rememberUpdatedState(channels)
@@ -177,6 +188,30 @@ fun PlayerScreen(
             .let { if (it >= 0) it else 0 }
         overlay.setFocus(filteredChannels.getOrNull(idx)?.id)
         if (filteredChannels.isNotEmpty()) listState.scrollToItem(idx)
+    }
+
+    // 收藏切换/频道列表变化后的焦点刷新：当前焦点已被移出列表（如收藏标签内取消收藏）时
+    // 重新定位到当前播放频道（不在当前列表则首项），保证列表内始终有可见焦点
+    LaunchedEffect(overlay.isOpen, channels) {
+        if (!overlay.isOpen) return@LaunchedEffect
+        if (overlay.focusedChannelId != null && filteredChannels.any { it.id == overlay.focusedChannelId }) {
+            return@LaunchedEffect
+        }
+        val idx = filteredChannels.indexOfFirst { it.id == currentChannelId }
+            .let { if (it >= 0) it else 0 }
+        overlay.setFocus(filteredChannels.getOrNull(idx)?.id)
+        if (filteredChannels.isNotEmpty()) listState.scrollToItem(idx)
+    }
+
+    // 右栏 EPG 时间轴：选中（焦点）频道变化时加载 ±3h 窗口节目；未匹配 EPG 由状态类清空
+    LaunchedEffect(overlay.isOpen, overlay.focusedChannelId) {
+        if (!overlay.isOpen) return@LaunchedEffect
+        epgTimeline.loadFor(focusedChannel, System.currentTimeMillis())
+    }
+
+    // 浮层收起：清空右栏 EPG 数据并令在途查询失效
+    LaunchedEffect(overlay.isOpen) {
+        if (!overlay.isOpen) epgTimeline.reset()
     }
 
     // 焦点行自动滚动到可见
@@ -432,7 +467,7 @@ fun PlayerScreen(
             }
         }
 
-        // 频道列表浮层（屏幕下方半透明面板）
+        // 频道列表浮层（左右两栏半透明面板：左栏分组+频道列表，右栏 EPG 时间轴）
         AnimatedVisibility(
             visible = overlay.isOpen,
             modifier = Modifier
@@ -450,6 +485,8 @@ fun PlayerScreen(
                 currentChannelId = currentChannelId,
                 listState = listState,
                 tabListState = tabListState,
+                selectedChannel = focusedChannel,
+                epgTimeline = epgTimeline,
             )
         }
 
@@ -508,8 +545,10 @@ fun PlayerScreen(
 }
 
 /**
- * 频道列表浮层内容：分组标签行（LazyRow）+ 频道列表（LazyColumn，虚拟化）。
- * 台标用 Coil AsyncImage 异步加载，占位为统一灰色块（避免每帧重组/同步加载）。
+ * 频道列表浮层内容（浮层重构）：左右两栏布局。
+ * - 左栏（约 58% 宽）：分组标签行（收藏 → 全部 → 各分组，LazyRow）+ 频道列表
+ *   （LazyColumn 虚拟化 + ChannelRow 复用 + 台标 Coil 异步 + 收藏 ★ 标记）
+ * - 右栏（剩余区域）：选中频道信息 + EPG 时间轴（[ChannelEpgTimeline]）
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -521,68 +560,92 @@ private fun ChannelListPanel(
     currentChannelId: String?,
     listState: androidx.compose.foundation.lazy.LazyListState,
     tabListState: androidx.compose.foundation.lazy.LazyListState,
+    selectedChannel: Channel?,
+    epgTimeline: ChannelEpgTimelineState,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = PANEL_BG_ALPHA))
-            .padding(vertical = 16.dp),
+            .background(Color.Black.copy(alpha = PANEL_BG_ALPHA)),
     ) {
-        // 分组标签行（"全部" + 各分组 + "收藏"）
-        LazyRow(
-            state = tabListState,
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // 左栏：分组标签行 + 频道列表
+        Column(
+            modifier = Modifier
+                .weight(LEFT_COLUMN_WEIGHT)
+                .fillMaxHeight()
+                .padding(vertical = 16.dp),
         ) {
-            items(tabs) { tab ->
-                val selected = tab == selectedTab
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
+            // 分组标签行（"收藏" → "全部" → 各分组）
+            LazyRow(
+                state = tabListState,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(tabs) { tab ->
+                    val selected = tab == selectedTab
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else Color.Transparent
+                            )
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = tab,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelLarge,
                         )
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    }
+                }
+            }
+
+            if (channels.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = tab,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "暂无频道",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+                ) {
+                    itemsIndexed(channels, key = { _, ch -> ch.id }) { _, channel ->
+                        ChannelRow(
+                            channel = channel,
+                            channelNumber = channel.number,
+                            isFocused = channel.id == focusedChannelId,
+                            isCurrent = channel.id == currentChannelId,
+                        )
+                    }
                 }
             }
         }
 
-        if (channels.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "暂无频道",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
-            ) {
-                itemsIndexed(channels, key = { _, ch -> ch.id }) { _, channel ->
-                    ChannelRow(
-                        channel = channel,
-                        channelNumber = channel.number,
-                        isFocused = channel.id == focusedChannelId,
-                        isCurrent = channel.id == currentChannelId,
-                    )
-                }
-            }
-        }
+        // 左栏与右栏分隔线
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = DIVIDER_ALPHA)),
+        )
+
+        // 右栏：选中频道信息 + EPG 时间轴（选中频道变化时由 PlayerScreen 驱动数据加载）
+        ChannelEpgTimeline(
+            channel = selectedChannel,
+            epgTimeline = epgTimeline,
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+        )
     }
 }
 
@@ -635,8 +698,11 @@ private class PlayerKeyHandler(
         if (event.type != KeyEventType.KeyDown) return false
         val code = event.key.nativeKeyCode
 
-        // 全局：星号键/红键一键收藏/取消当前目标频道
-        if (code == AndroidKeyEvent.KEYCODE_STAR || code == AndroidKeyEvent.KEYCODE_PROG_RED) {
+        // 全局：星号键/红键/Bookmark 键一键收藏/取消当前目标频道
+        if (code == AndroidKeyEvent.KEYCODE_STAR ||
+            code == AndroidKeyEvent.KEYCODE_PROG_RED ||
+            code == AndroidKeyEvent.KEYCODE_BOOKMARK
+        ) {
             return handleFavoriteToggle()
         }
         // 全局：Menu 键呼出主菜单（仅播放页且各浮层/页面收起时）
@@ -853,7 +919,13 @@ private const val NUMBER_BG_ALPHA = 0.8f
 private const val PANEL_BG_ALPHA = 0.75f
 
 /** 浮层高度占屏比例 */
-private const val OVERLAY_HEIGHT_FRACTION = 0.55f
+private const val OVERLAY_HEIGHT_FRACTION = 0.72f
+
+/** 浮层左栏宽度权重（右栏为剩余区域） */
+private const val LEFT_COLUMN_WEIGHT = 0.58f
+
+/** 左栏与右栏分隔线透明度 */
+private const val DIVIDER_ALPHA = 0.25f
 
 /** 主键盘数字键：KEYCODE_0(7)..KEYCODE_9(16) */
 private val DIGIT_CODES = AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9
