@@ -22,6 +22,14 @@ abstract class GroupDao(
     @Query("SELECT * FROM groups ORDER BY orderIndex ASC")
     abstract suspend fun getAllOnce(): List<GroupEntity>
 
+    /** 按名称一次性读取分组（EPG 分组刷新等一次性任务使用；不存在返回 null） */
+    @Query("SELECT * FROM groups WHERE name = :name LIMIT 1")
+    abstract suspend fun getByNameOnce(name: String): GroupEntity?
+
+    /** 设置分组级 EPG 源 URL（null 表示清除覆盖，回退全局源） */
+    @Query("UPDATE groups SET epgUrl = :epgUrl WHERE name = :name")
+    abstract suspend fun updateEpgUrl(name: String, epgUrl: String?)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsert(group: GroupEntity)
 

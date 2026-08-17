@@ -1,6 +1,8 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.GroupEntity
+import icu.gxb.hypertv.epg.EpgRefreshService
+import icu.gxb.hypertv.epg.EpgStore
 import icu.gxb.hypertv.m3u.EncodingDetector
 import icu.gxb.hypertv.m3u.M3uParser
 import icu.gxb.hypertv.net.getLocalIpv4
@@ -24,6 +26,9 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 
@@ -52,9 +57,17 @@ fun Application.hypertvModule(
     readFile: suspend (path: String) -> ByteArray = { throw PlaylistImportException("文件读取未配置") },
     m3uParser: M3uParser = M3uParser(),
     encodingDetector: EncodingDetector = EncodingDetector,
+    /** EPG（ticket 09）：同时提供 store 与 refresher 时挂载 EPG 路由；缺省不挂载（向后兼容） */
+    epgStore: EpgStore? = null,
+    epgRefresher: EpgRefreshService? = null,
+    epgScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
     install(ContentNegotiation) {
         json(Json { prettyPrint = true })
+    }
+    if (epgStore != null && epgRefresher != null) {
+        // 必须在 WebUI catch-all 路由之前注册，保证 /api/epg/* 命中 EPG 路由
+        epgModule(epgStore, epgRefresher, epgScope)
     }
     val importer = PlaylistImporter(m3uParser, encodingDetector, playlistStore, urlFetcher, saveFile, readFile)
     routing {

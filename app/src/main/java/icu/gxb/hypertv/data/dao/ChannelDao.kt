@@ -38,6 +38,16 @@ abstract class ChannelDao(
     @Query("SELECT * FROM channels WHERE id = :id LIMIT 1")
     abstract suspend fun getByIdOnce(id: String): ChannelEntity?
 
+    /** EPG 匹配后回写频道 epgId（xmltvId），供查询直接按频道 epgId 走索引 */
+    @Query("UPDATE channels SET epgId = :epgId WHERE id = :id")
+    protected abstract suspend fun updateEpgId(id: String, epgId: String)
+
+    /** 批量回写 epgId（单事务；EPG 刷新后只更新发生变化的频道） */
+    @Transaction
+    open suspend fun updateEpgIds(updates: List<Pair<String, String>>) {
+        updates.forEach { (id, epgId) -> updateEpgId(id, epgId) }
+    }
+
     /** 增量合并按频道 URL 匹配（ADR-0004），URL 归一化由调用方负责 */
     @Query("SELECT * FROM channels WHERE url = :url LIMIT 1")
     abstract suspend fun getByUrl(url: String): ChannelEntity?

@@ -60,6 +60,9 @@ class HypertvRepository(
 
     suspend fun deleteChannelsBySource(sourceId: String) = channelDao.deleteBySourceId(sourceId)
 
+    /** 批量回写频道 epgId（EPG 匹配结果写回，单事务） */
+    suspend fun updateChannelEpgIds(updates: List<Pair<String, String>>) = channelDao.updateEpgIds(updates)
+
     /** 增量合并按 URL 匹配现有频道（ADR-0004），URL 需调用方归一化 */
     suspend fun channelByUrl(url: String): ChannelEntity? = channelDao.getByUrl(url)
 
@@ -76,6 +79,11 @@ class HypertvRepository(
 
     /** 一次性（非 Flow）读取全部分组，供管理 API 使用 */
     suspend fun groupsOnce(): List<GroupEntity> = groupDao.getAllOnce()
+
+    suspend fun groupByNameOnce(name: String): GroupEntity? = groupDao.getByNameOnce(name)
+
+    /** 设置分组级 EPG 源 URL（null 表示清除覆盖，回退全局源） */
+    suspend fun updateGroupEpgUrl(name: String, url: String?) = groupDao.updateEpgUrl(name, url)
 
     suspend fun upsertGroup(group: GroupEntity) = groupDao.upsert(group)
 
@@ -129,6 +137,23 @@ class HypertvRepository(
         epgProgramDao.getByChannelAndTime(channelEpgId, start, end)
 
     suspend fun deleteExpiredPrograms(threshold: Long) = epgProgramDao.deleteExpired(threshold)
+
+    suspend fun deleteProgramsByChannelEpgIds(channelEpgIds: List<String>) =
+        epgProgramDao.deleteByChannelEpgIds(channelEpgIds)
+
+    /** 一次性（非 Flow）查询单频道窗口内节目（EPG guide 用） */
+    suspend fun programsByChannelEpgIdOnce(
+        channelEpgId: String,
+        start: Long,
+        end: Long,
+    ): List<EpgProgramEntity> = epgProgramDao.getByChannelEpgIdAndTimeOnce(channelEpgId, start, end)
+
+    /** 一次性（非 Flow）查询多个频道窗口内节目（EPG now 用） */
+    suspend fun programsByChannelEpgIdsOnce(
+        channelEpgIds: List<String>,
+        start: Long,
+        end: Long,
+    ): List<EpgProgramEntity> = epgProgramDao.getByChannelEpgIdsAndTimeOnce(channelEpgIds, start, end)
 
     // ---- 应用配置 ----
 

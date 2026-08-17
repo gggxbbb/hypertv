@@ -1,4 +1,4 @@
-import type { ChannelDTO, GroupDTO, ImportPreview, ImportResult, PlaylistDTO } from './types'
+import type { ChannelDTO, EpgGuide, EpgProgram, EpgSourceConfig, GroupDTO, ImportPreview, ImportResult, PlaylistDTO } from './types'
 
 /** 频道字段的可编辑子集（对应 PUT /api/channels/{id} 的局部更新）。 */
 export interface ChannelPatch {
@@ -102,6 +102,33 @@ export const api = {
     if (sourceName) form.append('sourceName', sourceName)
     form.append('file', file)
     return uploadFormData<ImportResult>('/api/playlist/upload', form)
+  },
+  // ---- EPG（ticket 09）----
+  epgSource() {
+    return request<EpgSourceConfig>('/api/epg/source')
+  },
+  /** 设置全局或分组级 EPG 源；url 为空串 = 清除；groupId 省略 = 全局 */
+  setEpgSource(url: string, groupId?: string) {
+    return request<EpgSourceConfig>('/api/epg/source', {
+      method: 'PUT',
+      body: JSON.stringify({ url, ...(groupId ? { groupId } : {}) }),
+    })
+  },
+  /** 触发异步刷新；groupId 省略 = 全局 */
+  refreshEpg(groupId?: string) {
+    return request<{ status: string; scope: string }>('/api/epg/refresh', {
+      method: 'POST',
+      body: JSON.stringify(groupId ? { groupId } : {}),
+    })
+  },
+  /** 当前正在播放的节目表：Map<channelId, EpgProgram> */
+  epgNow() {
+    return request<Record<string, EpgProgram>>('/api/epg/now')
+  },
+  epgGuide(channelId: string, date?: string) {
+    const params = new URLSearchParams({ channelId })
+    if (date) params.set('date', date)
+    return request<EpgGuide>(`/api/epg/guide?${params.toString()}`)
   },
 }
 

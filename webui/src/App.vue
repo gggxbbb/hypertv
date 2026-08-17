@@ -13,6 +13,7 @@ import { useRoute } from 'vue-router'
         <router-link to="/" class="nav-link" :class="{ active: useRoute().path === '/' }">频道</router-link>
         <router-link to="/groups" class="nav-link" :class="{ active: useRoute().path === '/groups' }">分组</router-link>
         <router-link to="/sources" class="nav-link" :class="{ active: useRoute().path === '/sources' }">📡 直播源</router-link>
+        <router-link to="/epg" class="nav-link" :class="{ active: useRoute().path === '/epg' }">📺 EPG</router-link>
       </nav>
     </header>
     <main class="app-main">

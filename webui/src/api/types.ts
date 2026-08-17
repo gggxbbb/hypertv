@@ -67,3 +67,57 @@ export interface ImportResult {
   hidden: number
   sourceId: string
 }
+
+// ---- EPG（ticket 09）----
+
+/** EPG 匹配统计（GET /api/epg/source 的 status.stats） */
+export interface EpgMatchStats {
+  total: number
+  matched: number
+  unmatched: number
+  level1: number
+  level2: number
+  level3: number
+  /** 命中率 0~1 */
+  rate: number
+}
+
+/** 刷新状态（内存态 + 持久化 lastUpdate） */
+export interface EpgStatus {
+  running: boolean
+  scope: string | null
+  lastUpdate: number | null
+  lastError: string | null
+  stats: EpgMatchStats | null
+}
+
+/** 分组级 EPG 源（epgUrl 为 null 表示未覆盖，回退全局源） */
+export interface EpgGroupSource {
+  name: string
+  epgUrl: string | null
+}
+
+/** GET /api/epg/source 响应 */
+export interface EpgSourceConfig {
+  globalUrl: string | null
+  groups: EpgGroupSource[]
+  status: EpgStatus
+}
+
+/** EPG 节目（now/guide 共用） */
+export interface EpgProgram {
+  id: string
+  channelId: string
+  title: string
+  description: string | null
+  category: string | null
+  startTime: number
+  endTime: number
+}
+
+/** GET /api/epg/guide 响应 */
+export interface EpgGuide {
+  channelId: string
+  date: string
+  programs: EpgProgram[]
+}

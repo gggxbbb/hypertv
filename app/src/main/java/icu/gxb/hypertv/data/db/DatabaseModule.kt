@@ -22,7 +22,9 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HypertvDatabase =
-        Room.databaseBuilder(context, HypertvDatabase::class.java, "hypertv.db").build()
+        Room.databaseBuilder(context, HypertvDatabase::class.java, "hypertv.db")
+            .addMigrations(HypertvDatabase.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideChannelDao(db: HypertvDatabase): ChannelDao = db.channelDao()

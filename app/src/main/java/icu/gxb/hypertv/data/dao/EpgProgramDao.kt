@@ -27,6 +27,35 @@ interface EpgProgramDao {
         end: Long,
     ): Flow<List<EpgProgramEntity>>
 
+    /** 一次性（非 Flow）查询单频道在 [start, end) 窗口内的节目，按 startTime 升序（EPG guide 用） */
+    @Query(
+        "SELECT * FROM epg_programs WHERE channelEpgId = :channelEpgId " +
+            "AND startTime < :end AND endTime > :start ORDER BY startTime ASC",
+    )
+    suspend fun getByChannelEpgIdAndTimeOnce(
+        channelEpgId: String,
+        start: Long,
+        end: Long,
+    ): List<EpgProgramEntity>
+
+    /**
+     * 一次性（非 Flow）查询多个频道在 [start, end) 窗口内的节目，按 startTime 升序
+     * （EPG now 用：一次取回所有频道的当前节目）。
+     */
+    @Query(
+        "SELECT * FROM epg_programs WHERE channelEpgId IN (:channelEpgIds) " +
+            "AND startTime < :end AND endTime > :start ORDER BY startTime ASC",
+    )
+    suspend fun getByChannelEpgIdsAndTimeOnce(
+        channelEpgIds: List<String>,
+        start: Long,
+        end: Long,
+    ): List<EpgProgramEntity>
+
+    /** 删除这些 channelEpgId 的全部节目（刷新前清旧数据） */
+    @Query("DELETE FROM epg_programs WHERE channelEpgId IN (:channelEpgIds)")
+    suspend fun deleteByChannelEpgIds(channelEpgIds: List<String>)
+
     /** 清理已全部结束的过期节目（endTime < 阈值） */
     @Query("DELETE FROM epg_programs WHERE endTime < :threshold")
     suspend fun deleteExpired(threshold: Long)

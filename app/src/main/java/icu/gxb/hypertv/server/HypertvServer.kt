@@ -4,12 +4,15 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import icu.gxb.hypertv.BuildConfig
 import icu.gxb.hypertv.data.repository.HypertvRepository
+import icu.gxb.hypertv.di.ApplicationScope
+import icu.gxb.hypertv.epg.EpgRefreshService
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * 内嵌 Ktor HTTP 服务器，绑定 0.0.0.0:SERVER_PORT。
@@ -20,6 +23,8 @@ import javax.inject.Singleton
 class HypertvServer @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: HypertvRepository,
+    private val epgRefresher: EpgRefreshService,
+    @ApplicationScope private val applicationScope: CoroutineScope,
 ) {
     private var engine: EmbeddedServer<*, *>? = null
 
@@ -38,6 +43,9 @@ class HypertvServer @Inject constructor(
                     managementStore = HypertvChannelManagementStore(repository),
                     saveFile = ::saveUploadedFile,
                     readFile = ::readUploadedFile,
+                    epgStore = HypertvEpgStore(repository),
+                    epgRefresher = epgRefresher,
+                    epgScope = applicationScope,
                 )
             },
         )
