@@ -39,6 +39,17 @@ object PlayerModule {
         RepositoryGroupSource(repository)
 
     @Provides
+    fun provideFavoriteDataSource(repository: HypertvRepository): FavoriteDataSource =
+        RepositoryFavoriteSource(repository)
+
+    @Provides
+    @Singleton
+    fun provideFavoriteStore(
+        dataSource: FavoriteDataSource,
+        @ApplicationScope scope: CoroutineScope,
+    ): FavoriteStore = FavoriteStore(dataSource, scope)
+
+    @Provides
     fun provideLastChannelStore(repository: HypertvRepository): LastChannelStore =
         AppConfigLastChannelStore(repository)
 

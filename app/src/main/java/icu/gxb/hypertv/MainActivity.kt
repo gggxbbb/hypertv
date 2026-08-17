@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import dagger.hilt.android.AndroidEntryPoint
+import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
 import icu.gxb.hypertv.ui.BootstrapScreen
 import icu.gxb.hypertv.ui.PlayerScreen
@@ -29,6 +30,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var exoPlayer: ExoPlayer
 
+    /** 收藏状态机（ticket 06），供播放页星号键收藏与收藏列表页渲染 */
+    @Inject
+    lateinit var favoriteStore: FavoriteStore
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,7 +43,11 @@ class MainActivity : ComponentActivity() {
                 if (channels.isEmpty()) {
                     BootstrapScreen()
                 } else {
-                    PlayerScreen(player = exoPlayer, controller = playerController)
+                    PlayerScreen(
+                        player = exoPlayer,
+                        controller = playerController,
+                        favoriteStore = favoriteStore,
+                    )
                 }
             }
         }

@@ -17,18 +17,6 @@ class RepositoryChannelSource(
 
     override val visibleChannels: Flow<List<Channel>> = repository.channels
         .map { list -> list.filterNot { it.isHidden } }
-        .map { list ->
-            list.map {
-                Channel(
-                    id = it.id,
-                    name = it.name,
-                    url = it.url,
-                    groupName = it.groupName,
-                    logoUrl = it.logoUrl,
-                    isFavorite = it.isFavorite,
-                    orderIndex = it.orderIndex,
-                )
-            }
-        }
+        .map { list -> list.map { it.toChannel() } }
         .flowOn(Dispatchers.Main.immediate)
 }

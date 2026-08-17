@@ -8,13 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -25,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,8 +38,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.exoplayer.ExoPlayer
@@ -50,46 +46,60 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
 import icu.gxb.hypertv.player.Channel
+import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
 import icu.gxb.hypertv.player.PlayerState
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * 播放页（ticket 04 + 05）：Media3 PlayerView（SurfaceView 方案）经 AndroidView 接入 Compose。
+ * 播放页（ticket 04 + 05 + 06）：Media3 PlayerView（SurfaceView 方案）经 AndroidView 接入 Compose。
  *
- * 按键语义（onPreviewKeyEvent，ticket 05）：
- * - 上下键：浮层收起时直接换台（按列表顺序）；浮层打开时在频道间移动焦点
+ * 按键语义（onPreviewKeyEvent，ticket 05/06）：
+ * - 上下键：浮层收起时直接换台（按列表顺序）；浮层打开时在频道间移动焦点；
+ *   主菜单/收藏列表页内移动对应列表焦点
  * - OK：浮层收起且无数字输入时呼出频道列表浮层；浮层内确认选中频道并换台收起；
- *   有数字输入时确认数字跳转
- * - 左右键：浮层内切换分组标签（全部/各分组/收藏），回绕
- * - 数字键（0-9 / 数字小键盘）：输入全局频道号（orderIndex+1，与分组无关），
- *   OK 确认或 2s 无按键自动跳转（spec 7.2）；浮层打开时同样生效并收起浮层
- * - 返回键：浮层内仅收起不换台；浮层外先取消数字输入
+ *   有数字输入时确认数字跳转；主菜单内确认进入收藏列表；收藏列表页内确认播放并返回
+ * - 左右键：浮层内切换分组标签（全部/各分组/收藏），回绕；收藏列表页内无功能（spec 7.2）
+ * - 数字键（0-9 / 数字小键盘）：播放页输入全局频道号，OK 确认或 2s 无按键自动跳转；
+ *   主菜单/收藏列表页内无功能（不累积输入）
+ * - 星号键（*）/ 红色功能键（ticket 06）：播放页切换当前播放频道收藏；浮层打开时
+ *   切换浮层焦点频道收藏；收藏列表页内切换焦点频道收藏，均显示短暂提示
+ * - Menu 键（ticket 06）：播放页呼出主菜单（半透明面板），上下键移动焦点、OK 进入
+ *   收藏列表、返回键关闭回到播放页
+ * - 返回键：浮层内仅收起不换台；主菜单/收藏列表页内关闭回到播放页；浮层外先取消数字输入
  *
- * 频道列表浮层：LazyColumn 虚拟化（5000+ 频道），行内 Coil AsyncImage 异步加载台标
- * （磁盘缓存由 Coil 3 默认 ImageLoader 提供）；当前播放频道高亮。
+ * 频道列表浮层：LazyColumn 虚拟化（5000+ 频道），行内 Coil AsyncImage 异步加载台标；
+ * 主菜单与收藏列表页以全屏/局部覆盖层叠加在本页之上（简单状态机，不引入导航库）。
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     player: ExoPlayer,
     controller: PlayerController,
+    favoriteStore: FavoriteStore,
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
     val channels by controller.channels.collectAsState()
     val groups by controller.groups.collectAsState()
+    val favorites by favoriteStore.favorites.collectAsState()
 
     var showChannelName by remember { mutableStateOf(false) }
     var showSignalLost by remember { mutableStateOf(false) }
+    var favoriteHint by remember { mutableStateOf<FavoriteHint?>(null) }
+    var hintSeq by remember { mutableIntStateOf(0) }
 
     val scope = rememberCoroutineScope()
     val overlay = remember { ChannelListOverlayState() }
     val numberInput = remember { ChannelNumberController(scope) }
+    val menu = remember { MainMenuState() }
+    val favoritesScreen = remember { FavoritesScreenState() }
     val listState = rememberLazyListState()
     val tabListState = rememberLazyListState()
+    val favoritesListState = rememberLazyListState()
 
     // 启动/换台时显示频道名，2s 后渐隐
     LaunchedEffect(state) {
@@ -109,6 +119,15 @@ fun PlayerScreen(
             showSignalLost = true
             delay(SIGNAL_LOST_SHOW_MS)
             showSignalLost = false
+        }
+    }
+
+    // 收藏提示：每次切换更新文本并重启 1.8s 渐隐窗口（快速连按时同样正确）
+    LaunchedEffect(favoriteHint?.seq) {
+        val hint = favoriteHint
+        if (hint != null) {
+            delay(FAVORITE_HINT_SHOW_MS)
+            favoriteHint = null
         }
     }
 
@@ -154,14 +173,44 @@ fun PlayerScreen(
         if (idx >= 0) tabListState.animateScrollToItem(idx)
     }
 
-    val handler = PlayerKeyHandler(controller, overlay, numberInput)
+    // 收藏列表页：进入或收藏变化时，焦点定位到当前播放频道（不在收藏中则保持原焦点，
+    // 仍无则首项）并滚动；OK 播放后由按键分发关闭
+    LaunchedEffect(favoritesScreen.isOpen, favorites) {
+        if (!favoritesScreen.isOpen) return@LaunchedEffect
+        var idx = favorites.indexOfFirst { it.id == currentChannelId }
+        if (idx < 0) idx = favorites.indexOfFirst { it.id == favoritesScreen.focusedChannelId }
+        if (idx < 0) idx = 0
+        favoritesScreen.setFocus(favorites.getOrNull(idx)?.id)
+        if (favorites.isNotEmpty()) favoritesListState.scrollToItem(idx.coerceIn(0, favorites.lastIndex))
+    }
+
+    // 收藏列表页：焦点行自动滚动到可见
+    LaunchedEffect(favoritesScreen.focusedChannelId) {
+        if (!favoritesScreen.isOpen) return@LaunchedEffect
+        val idx = favorites.indexOfFirst { it.id == favoritesScreen.focusedChannelId }
+        if (idx >= 0) favoritesListState.animateScrollToItem(idx)
+    }
+
+    val handler = PlayerKeyHandler(controller, overlay, numberInput, menu, favoritesScreen, favoriteStore, scope)
     handler.currentChannelId = currentChannelId
     handler.tabs = tabs
     handler.filteredChannels = filteredChannels
+    handler.favorites = favorites
     handler.onConfirmSelection = {
         val id = overlay.focusedChannelId
         if (id != null) controller.play(id)
         overlay.close()
+    }
+    handler.onMenuConfirm = { index ->
+        // 当前仅"收藏列表"可用（index 0）；数字输入在进入列表前打断，避免 2s 后误跳转
+        if (index == 0) {
+            numberInput.clear()
+            menu.close()
+            favoritesScreen.open()
+        }
+    }
+    handler.onToggleFavorite = { _, nowFavorite ->
+        favoriteHint = FavoriteHint(text = if (nowFavorite) "已收藏" else "已取消收藏", seq = ++hintSeq)
     }
 
     val numberDigits by numberInput.digits.collectAsState()
@@ -206,6 +255,28 @@ fun PlayerScreen(
             }
         }
 
+        // 收藏切换提示（右上角，数字输入下方）
+        AnimatedVisibility(
+            visible = favoriteHint != null,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 88.dp, end = 32.dp),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = FAVORITE_HINT_BG_ALPHA))
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = favoriteHint?.text.orEmpty(),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+
         AnimatedVisibility(
             // 浮层打开时频道名信息已在列表中体现，不再叠加显示
             visible = showChannelName && !overlay.isOpen,
@@ -221,7 +292,10 @@ fun PlayerScreen(
                     .padding(horizontal = 24.dp, vertical = 12.dp),
             ) {
                 Text(
-                    text = currentChannel?.name.orEmpty(),
+                    text = buildString {
+                        if (currentChannel?.isFavorite == true) append("★ ")
+                        append(currentChannel?.name.orEmpty())
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -265,6 +339,33 @@ fun PlayerScreen(
                 currentChannelId = currentChannelId,
                 listState = listState,
                 tabListState = tabListState,
+            )
+        }
+
+        // 主菜单（左侧半透明面板，播放页按 Menu 键呼出）
+        AnimatedVisibility(
+            visible = menu.isOpen,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 48.dp),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            MainMenuPanel(selectedIndex = menu.selectedIndex)
+        }
+
+        // 收藏列表全屏页（主菜单"⭐ 收藏列表"进入）
+        AnimatedVisibility(
+            visible = favoritesScreen.isOpen,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            FavoritesScreen(
+                favorites = favorites,
+                focusedChannelId = favoritesScreen.focusedChannelId,
+                currentChannelId = currentChannelId,
+                listState = favoritesListState,
             )
         }
     }
@@ -349,61 +450,6 @@ private fun ChannelListPanel(
     }
 }
 
-/** 频道行：频道号（orderIndex+1，固定宽度样式）+ 台标（统一占位灰块）+ 频道名 */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun ChannelRow(
-    channel: Channel,
-    channelNumber: Int,
-    isFocused: Boolean,
-    isCurrent: Boolean,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                when {
-                    isFocused -> MaterialTheme.colorScheme.primary.copy(alpha = FOCUS_BG_ALPHA)
-                    isCurrent -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CURRENT_BG_ALPHA)
-                    else -> Color.Transparent
-                }
-            )
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = channelNumber.toString().padStart(3, ' '),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = NUMBER_TEXT_ALPHA),
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.width(48.dp),
-        )
-        // 台标：统一灰色块占位 + Coil 异步加载（磁盘缓存默认开启）
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(LOGO_PLACEHOLDER_COLOR),
-        ) {
-            if (!channel.logoUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = channel.logoUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        Text(
-            text = channel.name,
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 16.dp),
-        )
-    }
-}
-
 /** 各状态对应的"当前频道" id，供浮层取名 */
 private fun stateChannelId(state: PlayerState): String? = when (state) {
     is PlayerState.Preparing -> state.channelId
@@ -413,26 +459,129 @@ private fun stateChannelId(state: PlayerState): String? = when (state) {
     else -> null
 }
 
+/** 收藏提示内容：文本 + 序号（序号变化触发 LaunchedEffect 重启 1.8s 渐隐窗口） */
+private data class FavoriteHint(
+    val text: String,
+    val seq: Int,
+)
+
 /**
- * 遥控器按键分发（ticket 05）。浮层打开时切换为"列表导航"语义，
- * 收起时恢复"直接换台"语义；数字键两种状态下都累积输入。
+ * 遥控器按键分发（ticket 05 + 06）。全局键（星号/红键收藏、Menu 呼出主菜单）优先，
+ * 其余按键按当前模式分发：主菜单 → 菜单导航；收藏列表页 → 列表导航；
+ * 播放页（含频道列表浮层）→ 既有语义（上下键换台/浮层移动、数字键输入、OK 呼出浮层等）。
  *
- * 字段（tabs/filteredChannels/currentChannelId/onConfirmSelection）由调用方
- * 在每次重组时同步，避免闭包捕获过期状态。
+ * 字段由调用方在每次重组时同步，避免闭包捕获过期状态。
  */
 private class PlayerKeyHandler(
     private val controller: PlayerController,
     private val overlay: ChannelListOverlayState,
     private val numberInput: ChannelNumberController,
+    private val menu: MainMenuState,
+    private val favoritesScreen: FavoritesScreenState,
+    private val favoriteStore: FavoriteStore,
+    private val scope: CoroutineScope,
 ) {
     var tabs: List<String> = emptyList()
     var filteredChannels: List<Channel> = emptyList()
+    var favorites: List<Channel> = emptyList()
     var currentChannelId: String? = null
     var onConfirmSelection: () -> Unit = {}
+    var onMenuConfirm: (Int) -> Unit = {}
+    var onToggleFavorite: (channelId: String, nowFavorite: Boolean) -> Unit = { _, _ -> }
 
     fun handle(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        return when (val code = event.key.nativeKeyCode) {
+        val code = event.key.nativeKeyCode
+
+        // 全局：星号键/红键一键收藏/取消当前目标频道
+        if (code == AndroidKeyEvent.KEYCODE_STAR || code == AndroidKeyEvent.KEYCODE_PROG_RED) {
+            return handleFavoriteToggle()
+        }
+        // 全局：Menu 键呼出主菜单（仅播放页且浮层收起时）
+        if (code == AndroidKeyEvent.KEYCODE_MENU) {
+            if (!menu.isOpen && !favoritesScreen.isOpen && !overlay.isOpen) {
+                numberInput.clear() // 打断数字输入，避免进入菜单后 2s 误跳转
+                menu.open()
+            }
+            return true
+        }
+
+        return when {
+            menu.isOpen -> handleMenuKey(code)
+            favoritesScreen.isOpen -> handleFavoritesKey(code)
+            else -> handlePlayerKey(code)
+        }
+    }
+
+    /** 星号/红键：按当前模式取目标频道（收藏列表页/浮层取焦点频道，播放页取当前播放频道） */
+    private fun handleFavoriteToggle(): Boolean {
+        val targetId = when {
+            favoritesScreen.isOpen -> favoritesScreen.focusedChannelId
+            overlay.isOpen -> overlay.focusedChannelId ?: currentChannelId
+            else -> currentChannelId
+        }
+        if (targetId == null) return false
+        scope.launch {
+            val nowFavorite = favoriteStore.toggle(targetId)
+            onToggleFavorite(targetId, nowFavorite)
+        }
+        return true
+    }
+
+    /** 主菜单导航：上下键移动焦点（仅启用项）、OK 确认、返回键关闭；左右键无功能 */
+    private fun handleMenuKey(code: Int): Boolean = when (code) {
+        AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP -> {
+            menu.moveFocus(-1, MAIN_MENU_ENABLED_COUNT)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> {
+            menu.moveFocus(1, MAIN_MENU_ENABLED_COUNT)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
+        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
+        -> {
+            if (MAIN_MENU_ENABLED_COUNT > 0) onMenuConfirm(menu.selectedIndex)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_BACK -> {
+            menu.close()
+            true
+        }
+        else -> true // 左右键/数字键等无功能，消费
+    }
+
+    /** 收藏列表页导航：上下键移动焦点、OK 播放并返回、返回键关闭；左右键无功能（spec 7.2） */
+    private fun handleFavoritesKey(code: Int): Boolean = when (code) {
+        AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP -> {
+            favoritesScreen.moveFocus(-1, favorites)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> {
+            favoritesScreen.moveFocus(1, favorites)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> true // 无功能，消费
+        AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
+        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
+        -> {
+            val id = favoritesScreen.focusedChannelId
+            if (id != null) {
+                controller.play(id)
+                favoritesScreen.close()
+            }
+            true
+        }
+        AndroidKeyEvent.KEYCODE_BACK -> {
+            favoritesScreen.close()
+            true
+        }
+        else -> true // 数字键等无功能，消费
+    }
+
+    /** 播放页（含频道列表浮层）语义：ticket 05 既有行为 */
+    private fun handlePlayerKey(code: Int): Boolean {
+        return when (code) {
             in DIGIT_CODES -> {
                 numberInput.onDigit(code - AndroidKeyEvent.KEYCODE_0)
                 true
@@ -491,19 +640,15 @@ private class PlayerKeyHandler(
 
 private const val CHANNEL_NAME_SHOW_MS = 2_000L
 private const val SIGNAL_LOST_SHOW_MS = 3_000L
+private const val FAVORITE_HINT_SHOW_MS = 1_800L
 private const val CHANNEL_NAME_BG_ALPHA = 0.6f
 private const val SIGNAL_LOST_BG_ALPHA = 0.6f
+private const val FAVORITE_HINT_BG_ALPHA = 0.8f
 private const val NUMBER_BG_ALPHA = 0.8f
 private const val PANEL_BG_ALPHA = 0.75f
-private const val FOCUS_BG_ALPHA = 0.45f
-private const val CURRENT_BG_ALPHA = 0.25f
-private const val NUMBER_TEXT_ALPHA = 0.6f
 
 /** 浮层高度占屏比例 */
 private const val OVERLAY_HEIGHT_FRACTION = 0.55f
-
-/** 台标统一占位灰块颜色 */
-private val LOGO_PLACEHOLDER_COLOR = Color(0xFF3A3A3A)
 
 /** 主键盘数字键：KEYCODE_0(7)..KEYCODE_9(16) */
 private val DIGIT_CODES = AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9
