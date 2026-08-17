@@ -14,4 +14,5 @@ internal fun ChannelEntity.toChannel(): Channel = Channel(
     logoUrl = logoUrl,
     isFavorite = isFavorite,
     orderIndex = orderIndex,
+    epgId = epgId,
 )

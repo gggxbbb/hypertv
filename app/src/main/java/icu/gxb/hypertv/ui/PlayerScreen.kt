@@ -46,12 +46,14 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import icu.gxb.hypertv.data.repository.HypertvRepository
 import icu.gxb.hypertv.player.Channel
 import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
 import icu.gxb.hypertv.player.PlayerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -80,6 +82,7 @@ fun PlayerScreen(
     player: ExoPlayer,
     controller: PlayerController,
     favoriteStore: FavoriteStore,
+    repository: HypertvRepository,
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -97,9 +100,12 @@ fun PlayerScreen(
     val numberInput = remember { ChannelNumberController(scope) }
     val menu = remember { MainMenuState() }
     val favoritesScreen = remember { FavoritesScreenState() }
+    val infoOverlay = remember { InfoOverlayState() }
+    val guide = remember { EpgGuideState() }
     val listState = rememberLazyListState()
     val tabListState = rememberLazyListState()
     val favoritesListState = rememberLazyListState()
+    val guideListState = rememberLazyListState()
 
     // 启动/换台时显示频道名，2s 后渐隐
     LaunchedEffect(state) {
@@ -191,10 +197,55 @@ fun PlayerScreen(
         if (idx >= 0) favoritesListState.animateScrollToItem(idx)
     }
 
-    val handler = PlayerKeyHandler(controller, overlay, numberInput, menu, favoritesScreen, favoriteStore, scope)
+    // Info 浮层：查询当前频道正在播放的节目（[now-δ, now+δ] 窗口内取正在播放的）。
+    // 换台（currentChannelId/state 变化）时刷新为新频道节目。
+    LaunchedEffect(infoOverlay.isOpen, currentChannelId, state) {
+        if (!infoOverlay.isOpen) return@LaunchedEffect
+        val epgId = currentChannel?.epgId
+        if (epgId == null) {
+            infoOverlay.updateProgram(null)
+            return@LaunchedEffect
+        }
+        val now = System.currentTimeMillis()
+        val programs = repository.programs(
+            epgId,
+            now - INFO_QUERY_DELTA_MS,
+            now + INFO_QUERY_DELTA_MS,
+        ).first()
+        infoOverlay.updateProgram(findCurrentProgram(programs, now))
+    }
+
+    // Info 浮层：超时自动收起（再次按 Info 由按键分发收起；换台后重新计时）
+    LaunchedEffect(infoOverlay.isOpen, currentChannelId) {
+        if (!infoOverlay.isOpen) return@LaunchedEffect
+        delay(INFO_AUTO_CLOSE_MS)
+        infoOverlay.onTimeout()
+    }
+
+    // Guide 节目加载：时间窗口或已加载频道数变化时查询并注入（N 个频道 × 6h 窗口，
+    // 一次批量查询；左右键移动窗口、上下键到底翻页时重新加载）
+    LaunchedEffect(guide.isOpen, guide.windowStartMs, guide.loadedChannelCount) {
+        if (!guide.isOpen) return@LaunchedEffect
+        val epgIds = channels.take(guide.loadedChannelCount).mapNotNull { it.epgId }.distinct()
+        val programs = if (epgIds.isEmpty()) {
+            emptyList()
+        } else {
+            repository.programsByChannelEpgIdsOnce(
+                epgIds,
+                guide.windowStartMs,
+                guide.windowStartMs + WINDOW_DURATION_MS,
+            )
+        }
+        guide.setPrograms(programs.groupBy { it.channelEpgId })
+    }
+
+    val handler = PlayerKeyHandler(
+        controller, overlay, numberInput, menu, favoritesScreen, guide, infoOverlay, favoriteStore, scope,
+    )
     handler.currentChannelId = currentChannelId
     handler.tabs = tabs
     handler.filteredChannels = filteredChannels
+    handler.allChannels = channels
     handler.favorites = favorites
     handler.onConfirmSelection = {
         val id = overlay.focusedChannelId
@@ -202,12 +253,24 @@ fun PlayerScreen(
         overlay.close()
     }
     handler.onMenuConfirm = { index ->
-        // 当前仅"收藏列表"可用（index 0）；数字输入在进入列表前打断，避免 2s 后误跳转
-        if (index == 0) {
-            numberInput.clear()
-            menu.close()
-            favoritesScreen.open()
+        // index 0 收藏列表 / index 1 节目表；进入前打断数字输入，避免 2s 后误跳转
+        numberInput.clear()
+        when (index) {
+            0 -> {
+                menu.close()
+                infoOverlay.close()
+                favoritesScreen.open()
+            }
+            1 -> {
+                menu.close()
+                infoOverlay.close()
+                guide.open(System.currentTimeMillis(), channels.size)
+            }
         }
+    }
+    handler.onGuideConfirm = { channelId ->
+        controller.play(channelId)
+        guide.close()
     }
     handler.onToggleFavorite = { _, nowFavorite ->
         favoriteHint = FavoriteHint(text = if (nowFavorite) "已收藏" else "已取消收藏", seq = ++hintSeq)
@@ -302,6 +365,21 @@ fun PlayerScreen(
             }
         }
 
+        // Info 节目信息浮层（屏幕上方，Info 键呼出/超时收起）
+        AnimatedVisibility(
+            visible = infoOverlay.isOpen,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 40.dp),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            InfoOverlay(
+                channelName = currentChannel?.name,
+                program = infoOverlay.program,
+            )
+        }
+
         AnimatedVisibility(
             visible = showSignalLost,
             modifier = Modifier.align(Alignment.Center),
@@ -366,6 +444,21 @@ fun PlayerScreen(
                 focusedChannelId = favoritesScreen.focusedChannelId,
                 currentChannelId = currentChannelId,
                 listState = favoritesListState,
+            )
+        }
+
+        // 节目表全屏页（主菜单"节目表"进入，与收藏列表页同级模式）
+        AnimatedVisibility(
+            visible = guide.isOpen,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            EpgGuideScreen(
+                channels = channels,
+                currentChannelId = currentChannelId,
+                guide = guide,
+                listState = guideListState,
             )
         }
     }
@@ -478,15 +571,20 @@ private class PlayerKeyHandler(
     private val numberInput: ChannelNumberController,
     private val menu: MainMenuState,
     private val favoritesScreen: FavoritesScreenState,
+    private val guide: EpgGuideState,
+    private val info: InfoOverlayState,
     private val favoriteStore: FavoriteStore,
     private val scope: CoroutineScope,
 ) {
     var tabs: List<String> = emptyList()
     var filteredChannels: List<Channel> = emptyList()
+    /** 完整可见频道列表（Guide 行焦点用，与浮层过滤列表无关） */
+    var allChannels: List<Channel> = emptyList()
     var favorites: List<Channel> = emptyList()
     var currentChannelId: String? = null
     var onConfirmSelection: () -> Unit = {}
     var onMenuConfirm: (Int) -> Unit = {}
+    var onGuideConfirm: (String) -> Unit = {}
     var onToggleFavorite: (channelId: String, nowFavorite: Boolean) -> Unit = { _, _ -> }
 
     fun handle(event: KeyEvent): Boolean {
@@ -497,9 +595,9 @@ private class PlayerKeyHandler(
         if (code == AndroidKeyEvent.KEYCODE_STAR || code == AndroidKeyEvent.KEYCODE_PROG_RED) {
             return handleFavoriteToggle()
         }
-        // 全局：Menu 键呼出主菜单（仅播放页且浮层收起时）
+        // 全局：Menu 键呼出主菜单（仅播放页且各浮层/页面收起时）
         if (code == AndroidKeyEvent.KEYCODE_MENU) {
-            if (!menu.isOpen && !favoritesScreen.isOpen && !overlay.isOpen) {
+            if (!menu.isOpen && !favoritesScreen.isOpen && !overlay.isOpen && !guide.isOpen) {
                 numberInput.clear() // 打断数字输入，避免进入菜单后 2s 误跳转
                 menu.open()
             }
@@ -508,6 +606,7 @@ private class PlayerKeyHandler(
 
         return when {
             menu.isOpen -> handleMenuKey(code)
+            guide.isOpen -> handleGuideKey(code)
             favoritesScreen.isOpen -> handleFavoritesKey(code)
             else -> handlePlayerKey(code)
         }
@@ -515,6 +614,7 @@ private class PlayerKeyHandler(
 
     /** 星号/红键：按当前模式取目标频道（收藏列表页/浮层取焦点频道，播放页取当前播放频道） */
     private fun handleFavoriteToggle(): Boolean {
+        if (guide.isOpen) return true // Guide 页内无收藏语义，消费不动作
         val targetId = when {
             favoritesScreen.isOpen -> favoritesScreen.focusedChannelId
             overlay.isOpen -> overlay.focusedChannelId ?: currentChannelId
@@ -546,6 +646,41 @@ private class PlayerKeyHandler(
         }
         AndroidKeyEvent.KEYCODE_BACK -> {
             menu.close()
+            true
+        }
+        else -> true // 左右键/数字键等无功能，消费
+    }
+
+    /**
+     * 节目表（Guide）导航：上下键移动行焦点（到底自动翻页追加）、左右键移动时间窗口
+     * （±1 小时）、OK 播放焦点频道并返回、返回键退出；数字键无功能（消费）。
+     */
+    private fun handleGuideKey(code: Int): Boolean = when (code) {
+        AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP -> {
+            guide.moveFocus(-1, allChannels.size)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> {
+            guide.moveFocus(1, allChannels.size)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
+            guide.moveWindow(-WINDOW_STEP_HOURS)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+            guide.moveWindow(WINDOW_STEP_HOURS)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
+        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
+        -> {
+            val id = allChannels.getOrNull(guide.focusedRow)?.id
+            if (id != null) onGuideConfirm(id)
+            true
+        }
+        AndroidKeyEvent.KEYCODE_BACK -> {
+            guide.close()
             true
         }
         else -> true // 左右键/数字键等无功能，消费
@@ -612,24 +747,40 @@ private class PlayerKeyHandler(
                 if (overlay.isOpen) overlay.switchTab(1, tabs)
                 true
             }
+            AndroidKeyEvent.KEYCODE_INFO -> {
+                // Info 键：浮层已开则收起；否则浮层收起时呼出（频道列表浮层打开时不叠加）
+                if (info.isOpen) info.close()
+                else if (!overlay.isOpen) {
+                    numberInput.clear()
+                    info.open()
+                }
+                true
+            }
             AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
             AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
             -> {
                 when {
                     numberInput.hasDigits() -> numberInput.confirm() // 数字输入时 OK 确认跳转
                     overlay.isOpen -> onConfirmSelection() // 浮层内 OK 确认选中频道
-                    else -> overlay.open() // 呼出频道列表浮层
+                    else -> {
+                        info.close()
+                        overlay.open() // 呼出频道列表浮层
+                    }
                 }
                 true
             }
             AndroidKeyEvent.KEYCODE_BACK -> {
-                if (overlay.isOpen) {
-                    // 返回键仅收起不换台（先取消挂起的数字输入，避免 2s 后误跳转）
-                    numberInput.clear()
-                    overlay.close()
-                } else {
-                    numberInput.clear() // 先取消数字输入，再次返回才交给系统退出
-                    return false
+                when {
+                    info.isOpen -> info.close() // Info 浮层优先收起
+                    overlay.isOpen -> {
+                        // 返回键仅收起不换台（先取消挂起的数字输入，避免 2s 后误跳转）
+                        numberInput.clear()
+                        overlay.close()
+                    }
+                    else -> {
+                        numberInput.clear() // 先取消数字输入，再次返回才交给系统退出
+                        return false
+                    }
                 }
                 true
             }

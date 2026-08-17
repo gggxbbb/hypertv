@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import dagger.hilt.android.AndroidEntryPoint
+import icu.gxb.hypertv.data.repository.HypertvRepository
 import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
 import icu.gxb.hypertv.ui.BootstrapScreen
@@ -34,6 +35,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var favoriteStore: FavoriteStore
 
+    /** 数据层入口（ticket 10），供 Info 浮层/节目表查询 EPG 节目 */
+    @Inject
+    lateinit var repository: HypertvRepository
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +52,7 @@ class MainActivity : ComponentActivity() {
                         player = exoPlayer,
                         controller = playerController,
                         favoriteStore = favoriteStore,
+                        repository = repository,
                     )
                 }
             }

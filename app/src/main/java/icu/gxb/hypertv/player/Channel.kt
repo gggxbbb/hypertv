@@ -15,4 +15,6 @@ data class Channel(
     val isFavorite: Boolean = false,
     /** 全局稳定排序位置，频道号 = orderIndex + 1（与分组无关） */
     val orderIndex: Int = 0,
+    /** EPG 匹配回写后的 channelEpgId（Info 浮层/节目表按它查节目），可能为空 */
+    val epgId: String? = null,
 )

@@ -16,7 +16,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 
 /**
- * 主菜单项：标题 + 可用性。节目表/回放/关于为禁用占位（ticket 11 收尾），
+ * 主菜单项：标题 + 可用性。回放/关于为禁用占位（v2/ticket 11 收尾），
  * 标题可见但不可聚焦。
  */
 internal data class MenuItem(
@@ -24,10 +24,10 @@ internal data class MenuItem(
     val enabled: Boolean,
 )
 
-/** 主菜单项定义（v1 仅"收藏列表"可用） */
+/** 主菜单项定义（v1：收藏列表 + 节目表可用） */
 internal val MAIN_MENU_ITEMS = listOf(
     MenuItem(title = "⭐ 收藏列表", enabled = true),
-    MenuItem(title = "节目表", enabled = false),
+    MenuItem(title = "节目表", enabled = true),
     MenuItem(title = "回放", enabled = false),
     MenuItem(title = "关于", enabled = false),
 )
