@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -31,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -101,6 +104,7 @@ fun PlayerScreen(
     var hintSeq by remember { mutableIntStateOf(0) }
 
     val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
     val overlay = remember { ChannelListOverlayState() }
     val numberInput = remember { ChannelNumberController(scope) }
     val menu = remember { MainMenuState() }
@@ -293,10 +297,24 @@ fun PlayerScreen(
 
     val numberDigits by numberInput.digits.collectAsState()
 
+    // 根容器焦点（bug 修复：无焦点节点时 onPreviewKeyEvent 永不触发）。
+    // 首次组合后请求焦点，使根 Box 成为系统焦点持有者，全部按键经 preview 阶段送达 handler。
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    // 浮层（频道列表/主菜单/收藏页/Guide/Info/关于）关闭后，焦点回落回根容器，
+    // 保证"返回播放页"后上下键/OK 键仍能到达 handler。requestFocus 对已聚焦节点是幂等 no-op。
+    val overlaysClosed = !overlay.isOpen && !menu.isOpen && !favoritesScreen.isOpen &&
+        !guide.isOpen && !about.isOpen && !infoOverlay.isOpen
+    LaunchedEffect(overlaysClosed) {
+        if (overlaysClosed) focusRequester.requestFocus()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(focusRequester)
+            .focusable()
             .onPreviewKeyEvent { event -> handler.handle(event) },
     ) {
         AndroidView(
