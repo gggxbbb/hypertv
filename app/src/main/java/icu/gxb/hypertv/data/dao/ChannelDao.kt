@@ -30,6 +30,14 @@ abstract class ChannelDao(
     @Query("SELECT * FROM channels WHERE sourceId = :sourceId ORDER BY orderIndex ASC")
     abstract suspend fun getBySourceIdOnce(sourceId: String): List<ChannelEntity>
 
+    /** 一次性（非 Flow）读取全部频道，供管理 API 等一次性任务使用 */
+    @Query("SELECT * FROM channels ORDER BY orderIndex ASC")
+    abstract suspend fun getAllOnce(): List<ChannelEntity>
+
+    /** 一次性（非 Flow）按 id 读取，供管理 API 编辑合并字段时使用 */
+    @Query("SELECT * FROM channels WHERE id = :id LIMIT 1")
+    abstract suspend fun getByIdOnce(id: String): ChannelEntity?
+
     /** 增量合并按频道 URL 匹配（ADR-0004），URL 归一化由调用方负责 */
     @Query("SELECT * FROM channels WHERE url = :url LIMIT 1")
     abstract suspend fun getByUrl(url: String): ChannelEntity?
@@ -58,8 +66,20 @@ abstract class ChannelDao(
     @Query("SELECT * FROM channels WHERE isFavorite = 1 ORDER BY orderIndex ASC")
     abstract fun getFavorites(): Flow<List<ChannelEntity>>
 
+    /** 一次性（非 Flow）读取全部收藏频道，供管理 API 使用 */
+    @Query("SELECT * FROM channels WHERE isFavorite = 1 ORDER BY orderIndex ASC")
+    abstract suspend fun getFavoritesOnce(): List<ChannelEntity>
+
     @Query("UPDATE channels SET orderIndex = :orderIndex WHERE id = :id")
     protected abstract suspend fun updateOrderIndex(id: String, orderIndex: Int)
+
+    /** 批量改分组（WebUI 拖拽入组）；groupName 传空字符串表示归入"未分组" */
+    @Query("UPDATE channels SET groupName = :groupName WHERE id IN (:ids)")
+    abstract suspend fun setGroupForIds(ids: List<String>, groupName: String)
+
+    /** 把某分组下全部频道归入"未分组"（删除分组时调用，事务在 GroupDao 侧保证） */
+    @Query("UPDATE channels SET groupName = '' WHERE groupName = :groupName")
+    abstract suspend fun clearGroup(groupName: String)
 
     /** 批量重排：一次性事务内更新多个频道的 orderIndex */
     @Transaction

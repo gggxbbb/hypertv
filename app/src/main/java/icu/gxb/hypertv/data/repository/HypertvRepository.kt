@@ -34,7 +34,16 @@ class HypertvRepository(
     /** 收藏频道（按 orderIndex 升序） */
     val favoriteChannels: Flow<List<ChannelEntity>> = channelDao.getFavorites()
 
+    /** 一次性（非 Flow）读取全部收藏频道，供管理 API 使用 */
+    suspend fun favoriteChannelsOnce(): List<ChannelEntity> = channelDao.getFavoritesOnce()
+
+    /** 一次性（非 Flow）读取全部频道，供管理 API 等一次性任务使用 */
+    suspend fun channelsOnce(): List<ChannelEntity> = channelDao.getAllOnce()
+
     fun channelById(id: String): Flow<ChannelEntity?> = channelDao.getById(id)
+
+    /** 一次性（非 Flow）按 id 读取，供管理 API 编辑合并字段时使用 */
+    suspend fun channelByIdOnce(id: String): ChannelEntity? = channelDao.getByIdOnce(id)
 
     fun channelsBySource(sourceId: String): Flow<List<ChannelEntity>> = channelDao.getBySourceId(sourceId)
 
@@ -65,9 +74,18 @@ class HypertvRepository(
 
     val groups: Flow<List<GroupEntity>> = groupDao.getAll()
 
+    /** 一次性（非 Flow）读取全部分组，供管理 API 使用 */
+    suspend fun groupsOnce(): List<GroupEntity> = groupDao.getAllOnce()
+
     suspend fun upsertGroup(group: GroupEntity) = groupDao.upsert(group)
 
+    /** 删除分组并把组内频道归入"未分组"（WebUI 分组删除走这里，事务保证） */
+    suspend fun deleteGroupWithChannels(name: String) = groupDao.deleteGroupWithChannels(name)
+
     suspend fun deleteGroup(name: String) = groupDao.deleteByName(name)
+
+    /** 批量改分组（WebUI 拖拽入组）；groupName 为空字符串表示归入"未分组" */
+    suspend fun moveChannelsToGroup(ids: List<String>, groupName: String) = channelDao.setGroupForIds(ids, groupName)
 
     suspend fun reorderGroups(newOrder: List<Pair<String, Int>>) = groupDao.reorder(newOrder)
 

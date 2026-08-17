@@ -32,8 +32,9 @@ class HypertvServer @Inject constructor(
             module = {
                 hypertvModule(
                     version = BuildConfig.VERSION_NAME,
-                    indexHtml = ::readIndexHtml,
+                    webAssetLoader = ::readWebAsset,
                     playlistStore = HypertvPlaylistImportStore(repository),
+                    managementStore = HypertvChannelManagementStore(repository),
                 )
             },
         )
@@ -47,10 +48,10 @@ class HypertvServer @Inject constructor(
         engine = null
     }
 
-    /** 读取 assets 中的 WebUI 首页；缺失时返回 null，路由会退回内置占位文案。 */
-    private fun readIndexHtml(): String? {
+    /** 读取 assets/webui 下任意文件；缺失时返回 null，路由会退回 404。 */
+    private fun readWebAsset(path: String): ByteArray? {
         return try {
-            context.assets.open("webui/index.html").bufferedReader().use { it.readText() }
+            context.assets.open("webui/$path").use { it.readBytes() }
         } catch (_: Exception) {
             null
         }

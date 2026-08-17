@@ -51,6 +51,7 @@ class PlaylistImportRouteTest {
         hypertvModule(
             version = "1.0",
             playlistStore = store,
+            managementStore = FakeChannelManagementStore(),
             urlFetcher = fetcher,
         )
     }

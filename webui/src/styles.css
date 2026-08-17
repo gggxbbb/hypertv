@@ -1,0 +1,36 @@
+/* 全局样式 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+}
+
+body {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+/* 频道长列表优化：只渲染视口附近的行（Chrome/Edge 原生虚拟化） */
+.channel-list-content {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
+
+/* 拖拽样式 */
+.drag-ghost {
+  opacity: 0.5;
+  background: #e0e7ff !important;
+}
+
+.drag-chosen {
+  background: #eef2ff;
+}

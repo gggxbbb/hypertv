@@ -98,3 +98,49 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+// ============ WebUI 构建集成（ticket 07）============
+// 构建链：npm install → npm run build → 复制 webui/dist 到 assets/webui。
+// - npmInstallWebui 幂等（npm install 自身很快）；npm 未安装/网络失败会直接报错，不静默
+// - buildWebui 以 webui/src 与配置文件为输入、dist 为输出，源码未变时由 Gradle 增量缓存跳过
+val webuiDir = rootProject.layout.projectDirectory.dir("webui")
+val webuiDistDir = webuiDir.dir("dist")
+val webuiAssetsDir = layout.projectDirectory.dir("src/main/assets/webui")
+
+val npmCommand = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
+
+val npmInstallWebui by tasks.registering(Exec::class) {
+    group = "webui"
+    description = "安装 WebUI npm 依赖（幂等）"
+    workingDir = webuiDir.asFile
+    commandLine(npmCommand, "install", "--no-audit", "--no-fund")
+}
+
+val buildWebui by tasks.registering(Exec::class) {
+    group = "webui"
+    description = "构建 Vue WebUI 到 webui/dist"
+    dependsOn(npmInstallWebui)
+    workingDir = webuiDir.asFile
+    commandLine(npmCommand, "run", "build")
+    inputs.dir(webuiDir.dir("src"))
+    inputs.files(
+        webuiDir.file("package.json"),
+        webuiDir.file("package-lock.json"),
+        webuiDir.file("vite.config.ts"),
+        webuiDir.file("tsconfig.json"),
+        webuiDir.file("index.html"),
+    )
+    outputs.dir(webuiDistDir)
+}
+
+val copyWebuiToAssets by tasks.registering(Copy::class) {
+    group = "webui"
+    description = "复制 WebUI 构建产物到 app 的 assets/webui"
+    dependsOn(buildWebui)
+    from(webuiDistDir)
+    into(webuiAssetsDir)
+}
+
+tasks.named("preBuild") {
+    dependsOn(copyWebuiToAssets)
+}

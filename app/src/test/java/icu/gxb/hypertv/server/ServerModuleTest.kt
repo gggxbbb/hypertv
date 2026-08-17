@@ -19,13 +19,15 @@ class ServerModuleTest {
     private fun ApplicationTestBuilder.hypertvApp(
         version: String = "9.9-test",
         ipProvider: () -> String? = { "192.168.1.10" },
-        indexHtml: () -> String? = { null },
+        webAssetLoader: (String) -> ByteArray? = { null },
+        managementStore: FakeChannelManagementStore = FakeChannelManagementStore(),
     ) = application {
         hypertvModule(
             version = version,
             ipProvider = ipProvider,
-            indexHtml = indexHtml,
+            webAssetLoader = webAssetLoader,
             playlistStore = FakePlaylistImportStore(),
+            managementStore = managementStore,
             urlFetcher = { error("不应触发 URL 拉取") },
         )
     }
@@ -57,7 +59,9 @@ class ServerModuleTest {
 
     @Test
     fun `root path serves WebUI index html`() = testApplication {
-        hypertvApp(indexHtml = { "<h1>HyperTV WebUI 占位页</h1>" })
+        hypertvApp(webAssetLoader = { path ->
+            if (path == "index.html") "<h1>HyperTV WebUI</h1>".toByteArray() else null
+        })
 
         val response = client.get("/")
 
@@ -66,12 +70,23 @@ class ServerModuleTest {
     }
 
     @Test
-    fun `root path falls back to built-in placeholder when asset missing`() = testApplication {
+    fun `root path returns 404 when WebUI asset missing`() = testApplication {
         hypertvApp()
 
         val response = client.get("/")
 
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `nested webui assets are served from loader`() = testApplication {
+        hypertvApp(webAssetLoader = { path ->
+            if (path == "assets/app.js") "console.log(1)".toByteArray() else null
+        })
+
+        val response = client.get("/assets/app.js")
+
         assertEquals(HttpStatusCode.OK, response.status)
-        assertTrue(response.bodyAsText().contains("HyperTV WebUI"))
+        assertTrue(response.bodyAsText().contains("console.log"))
     }
 }
