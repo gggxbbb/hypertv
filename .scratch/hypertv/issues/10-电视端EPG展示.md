@@ -4,9 +4,13 @@
 
 **Blocked by:** 09 — EPG 体系；05 — 频道列表浮层与数字键跳转
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Info 浮层显示当前节目信息（含简介），再次按 Info 或超时收起
-- [ ] Guide 页时间轴网格可浏览，上下切频道、左右切时间
-- [ ] 未匹配到 EPG 的频道在 Guide 中显示为空行（不报错）
-- [ ] 从 Guide 选中节目可切到对应频道播放
+- [x] Info 浮层显示当前节目信息（含简介），再次按 Info 或超时收起
+- [x] Guide 页时间轴网格可浏览，上下切频道、左右切时间
+- [x] 未匹配到 EPG 的频道在 Guide 中显示为空行（不报错）
+- [x] 从 Guide 选中节目可切到对应频道播放
+
+## Answer（2026-08-17）
+
+Commit `fd71b89` 实现并验收通过：InfoOverlay（Info 键呼出上方面板：频道名/节目名/起止时间/简介；4s 超时或再按收起；换台刷新重新计时；findCurrentProgram 纯函数查 [now-2h, now+2h]）；EpgGuideScreen 单 LazyColumn 时间轴网格（左 160dp 频道列 + 右节目条，layoutProgram 纯函数按比例映射 x/width，小时网格线 + 当前时间竖线）；数据方案：每页 50 频道翻页追加 + 6h 窗口（±3h 居中，左右平移 ±1h），批量查询分组注入，5000 频道不全量绘制；主菜单"节目表"启用；PlayerKeyHandler 加 guide 模式；未匹配行显示"无节目信息"。构建成功，208 个单测全过（新增 28 个）。遗留：当前时间线为打开时快照；Guide 打开期间频道变化时焦点高亮可能消失（不崩溃）。
