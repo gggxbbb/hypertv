@@ -91,17 +91,53 @@ export interface EpgStatus {
   stats: EpgMatchStats | null
 }
 
-/** 分组级 EPG 源（epgUrl 为 null 表示未覆盖，回退全局源） */
-export interface EpgGroupSource {
-  name: string
-  epgUrl: string | null
+/** 全局 EPG 源（id 为后端自增主键） */
+export interface EpgSource {
+  id: number
+  url: string
+  enabled: boolean
 }
 
-/** GET /api/epg/source 响应 */
+/** 分组级 EPG 源（url 为 null 表示未覆盖，回退全局源） */
+export interface EpgGroupSource {
+  groupName: string
+  url: string | null
+}
+
+/** GET /api/epg/source 响应：全局多源 + 分组级源 + 刷新状态 */
 export interface EpgSourceConfig {
-  globalUrl: string | null
-  groups: EpgGroupSource[]
+  sources: EpgSource[]
+  groupSources: EpgGroupSource[]
   status: EpgStatus
+}
+
+/** EPG 匹配规则（v3）：把「同一 EPG 频道、不同清晰度多个源」归并到同一 epgId */
+export interface EpgMatchRule {
+  id: number
+  epgChannelId: string
+  keyword: string
+  /** "prefix" 前缀匹配 | "contains" 包含匹配 */
+  ruleType: 'prefix' | 'contains'
+  /** 当前 epgId == epgChannelId 的频道数 */
+  matchedCount: number
+}
+
+/** POST /api/epg/rules 请求体 */
+export interface EpgMatchRuleInput {
+  epgChannelId: string
+  keyword: string
+  ruleType: 'prefix' | 'contains'
+}
+
+/** POST /api/epg/rules/apply 响应 */
+export interface EpgRuleApplyResult {
+  applied: number
+}
+
+/** GET /api/epg/channels 候选列表项：EPG 频道 id + 关联频道名样例（最多 5 个） */
+export interface EpgChannelCandidate {
+  epgId: string
+  channelNames: string[]
 }
 
 /** EPG 节目（now/guide 共用） */

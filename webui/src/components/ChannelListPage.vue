@@ -7,7 +7,8 @@ import { useChannelsStore } from '@/stores/channels'
 import { useGroupsStore } from '@/stores/groups'
 import { usePolling } from '@/composables/usePolling'
 import { debounce } from '@/composables/useDebounce'
-import type { ChannelDTO } from '@/api/types'
+import { api } from '@/api/client'
+import type { ChannelDTO, EpgChannelCandidate } from '@/api/types'
 
 const channelsStore = useChannelsStore()
 const groupsStore = useGroupsStore()
@@ -116,6 +117,43 @@ async function editLogo(ch: ChannelDTO) {
   }
 }
 
+// ---- EPG 手动绑定 ----
+const editingEpgId = ref<string | null>(null)
+const editingEpgValue = ref('')
+const epgCandidates = ref<EpgChannelCandidate[]>([])
+const epgCandidatesLoading = ref(false)
+
+async function loadEpgCandidates() {
+  epgCandidatesLoading.value = true
+  try {
+    epgCandidates.value = await api.epgChannels()
+  } catch (e) {
+    ElMessage.error((e as Error).message)
+  } finally {
+    epgCandidatesLoading.value = false
+  }
+}
+
+function startEpgEdit(ch: ChannelDTO) {
+  editingEpgId.value = ch.id
+  editingEpgValue.value = ch.epgId ?? ''
+}
+
+/** 行内 EPG 绑定提交：空值 = 清除（置 null），非空 = 手动绑定（后端置 epgManual，导入/刷新不再覆盖） */
+function commitEpg(id: string, value: string | number | boolean) {
+  const epgId = String(value ?? '').trim()
+  channelsStore.applyPatch(id, { epgId: epgId ? epgId : null })
+  ElMessage.success(
+    epgId ? `已绑定 ${epgId}，手动绑定后不会被导入/刷新覆盖` : '已清除 EPG 绑定',
+  )
+  editingEpgId.value = null
+}
+
+/** 下拉收起时若未选择则退出编辑态（不保存） */
+function onEpgSelectVisible(visible: boolean) {
+  if (!visible) editingEpgId.value = null
+}
+
 // ---- 删除 ----
 async function confirmDelete(ch: ChannelDTO) {
   try {
@@ -166,6 +204,7 @@ function onLogoError(e: Event) {
 
 onMounted(() => {
   rows.value = filtered.value
+  void loadEpgCandidates()
 })
 
 defineExpose({ refresh: polling.refresh })
@@ -269,6 +308,38 @@ defineExpose({ refresh: polling.refresh })
             <el-option label="未分组" value="" />
             <el-option v-for="g in groupOptions" :key="g" :label="g" :value="g" />
           </el-select>
+          <span class="ch-epg">
+            <el-select
+              v-if="editingEpgId === ch.id"
+              v-model="editingEpgValue"
+              class="epg-select"
+              size="small"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="输入或选择 epgId"
+              :loading="epgCandidatesLoading"
+              @change="(v: string | number | boolean) => commitEpg(ch.id, v)"
+              @visible-change="onEpgSelectVisible"
+            >
+              <el-option
+                v-for="c in epgCandidates"
+                :key="c.epgId"
+                :label="c.channelNames.length > 0 ? `${c.epgId}（${c.channelNames.join('、')}）` : c.epgId"
+                :value="c.epgId"
+              />
+            </el-select>
+            <span
+              v-else
+              class="epg-text"
+              :class="{ 'epg-unmatched': !ch.epgId }"
+              :title="ch.epgId ? `点击修改；${ch.epgId} 为手动绑定，不会被导入/刷新覆盖` : '点击绑定 EPG 频道'"
+              @click="startEpgEdit(ch)"
+            >
+              {{ ch.epgId || '未匹配' }}
+            </span>
+          </span>
           <el-button
             class="ch-fav"
             link
@@ -339,7 +410,7 @@ defineExpose({ refresh: polling.refresh })
 }
 .list-scroll {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   min-height: 0;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -348,10 +419,11 @@ defineExpose({ refresh: polling.refresh })
 .channel-list {
   display: flex;
   flex-direction: column;
+  min-width: 1080px;
 }
 .channel-row {
   display: grid;
-  grid-template-columns: 24px 28px 56px 36px 1fr 150px 32px 44px 72px;
+  grid-template-columns: 24px 28px 56px 36px 1fr 150px 180px 32px 44px 72px;
   align-items: center;
   gap: 6px;
   height: 52px;
@@ -421,6 +493,24 @@ defineExpose({ refresh: polling.refresh })
 }
 .ch-group {
   width: 150px;
+}
+.ch-epg {
+  min-width: 0;
+}
+.epg-select {
+  width: 180px;
+}
+.epg-text {
+  cursor: pointer;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #374151;
+}
+.epg-unmatched {
+  color: #9ca3af;
+  font-style: italic;
 }
 .ch-fav {
   padding: 0;

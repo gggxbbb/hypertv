@@ -1,4 +1,18 @@
-import type { ChannelDTO, EpgGuide, EpgProgram, EpgSourceConfig, GroupDTO, ImportPreview, ImportResult, PlaylistDTO } from './types'
+import type {
+  ChannelDTO,
+  EpgChannelCandidate,
+  EpgGuide,
+  EpgMatchRule,
+  EpgMatchRuleInput,
+  EpgProgram,
+  EpgRuleApplyResult,
+  EpgSource,
+  EpgSourceConfig,
+  GroupDTO,
+  ImportPreview,
+  ImportResult,
+  PlaylistDTO,
+} from './types'
 
 /** 频道字段的可编辑子集（对应 PUT /api/channels/{id} 的局部更新）。 */
 export interface ChannelPatch {
@@ -6,6 +20,8 @@ export interface ChannelPatch {
   groupName?: string
   logoUrl?: string | null
   isHidden?: boolean
+  /** EPG 手动绑定；null = 清除绑定（后端会复位 epgManual，不再被导入/刷新覆盖） */
+  epgId?: string | null
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -106,16 +122,54 @@ export const api = {
     form.append('file', file)
     return uploadFormData<ImportResult>('/api/playlist/upload', form)
   },
-  // ---- EPG（ticket 09）----
+  // ---- EPG（ticket 09 + v3 多源/规则）----
   epgSource() {
     return request<EpgSourceConfig>('/api/epg/source')
   },
-  /** 设置全局或分组级 EPG 源；url 为空串 = 清除；groupId 省略 = 全局 */
+  /** 设置全局或分组级 EPG 源；url 为空串 = 清除；groupId 省略 = 全局（v3 兼容：清空全局源并设为单源） */
   setEpgSource(url: string, groupId?: string) {
     return request<EpgSourceConfig>('/api/epg/source', {
       method: 'PUT',
       body: JSON.stringify({ url, ...(groupId ? { groupId } : {}) }),
     })
+  },
+  /** 追加一个全局 EPG 源（多源模式） */
+  addEpgSource(url: string) {
+    return request<EpgSource>('/api/epg/source', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    })
+  },
+  /** 更新全局 EPG 源：可改 url 或 enabled（局部更新） */
+  updateEpgSource(id: number, patch: { url?: string; enabled?: boolean }) {
+    return request<EpgSource>(`/api/epg/source/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    })
+  },
+  deleteEpgSource(id: number) {
+    return request<void>(`/api/epg/source/${id}`, { method: 'DELETE' })
+  },
+  /** 匹配规则列表（含当前命中频道数） */
+  epgRules() {
+    return request<EpgMatchRule[]>('/api/epg/rules')
+  },
+  addEpgRule(rule: EpgMatchRuleInput) {
+    return request<EpgMatchRule>('/api/epg/rules', {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    })
+  },
+  deleteEpgRule(id: number) {
+    return request<void>(`/api/epg/rules/${id}`, { method: 'DELETE' })
+  },
+  /** 立即应用全部规则到频道，返回命中数 */
+  applyEpgRules() {
+    return request<EpgRuleApplyResult>('/api/epg/rules/apply', { method: 'POST' })
+  },
+  /** EPG 频道候选列表（供规则页下拉与频道绑定） */
+  epgChannels() {
+    return request<EpgChannelCandidate[]>('/api/epg/channels')
   },
   /** 触发异步刷新；groupId 省略 = 全局 */
   refreshEpg(groupId?: string) {
