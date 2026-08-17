@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HyperTV 启动图标前景（自适应图标，108dp 画布，内容在中心 66dp 安全区内）。
+  黑白灰风格：白描边电视 + 白色播放三角 + 灰色天线/底座。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 天线：两条折线（灰） -->
+    <path
+        android:pathData="M50,42 L45,32 M58,42 L63,32"
+        android:strokeColor="#9E9E9E"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+
+    <!-- 电视机身：圆角矩形，白色描边（居中 44×34） -->
+    <path
+        android:pathData="M34,42 h40 a4,4 0 0 1 4,4 v26 a4,4 0 0 1 -4,4 h-40 a4,4 0 0 1 -4,-4 v-26 a4,4 0 0 1 4,-4 z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000" />
+
+    <!-- 播放三角（白色实心） -->
+    <path
+        android:pathData="M46,51 L62,58 L46,65 z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- 底座（灰） -->
+    <path
+        android:pathData="M45,76 h18 v3 h-18 z"
+        android:fillColor="#9E9E9E" />
+</vector>
