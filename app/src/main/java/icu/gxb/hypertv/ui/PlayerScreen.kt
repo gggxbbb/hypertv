@@ -633,14 +633,6 @@ private fun ChannelListPanel(
             }
         }
 
-        // 左栏与右栏分隔线（只到右栏 EPG 面板高度）
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .height(EPG_PANEL_HEIGHT)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = DIVIDER_ALPHA)),
-        )
-
         // 右栏：选中频道信息 + EPG 时间轴（顶部矮条，够显示时间轴即可，下方露出视频）
         ChannelEpgTimeline(
             channel = selectedChannel,
@@ -926,10 +918,7 @@ private const val PANEL_BG_ALPHA = 0.75f
 private val EPG_PANEL_HEIGHT = 100.dp
 
 /** 浮层左栏宽度权重（右栏为剩余区域） */
-private const val LEFT_COLUMN_WEIGHT = 0.58f
-
-/** 左栏与右栏分隔线透明度 */
-private const val DIVIDER_ALPHA = 0.25f
+private const val LEFT_COLUMN_WEIGHT = 0.40f
 
 /** 主键盘数字键：KEYCODE_0(7)..KEYCODE_9(16) */
 private val DIGIT_CODES = AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9

@@ -1,7 +1,9 @@
 package icu.gxb.hypertv.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -113,7 +115,9 @@ internal fun GuideProgramRow(
                 text = "无节目信息",
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 12.dp),
             )
         } else {
             programs.forEach { prog ->
@@ -140,8 +144,15 @@ internal fun GuideProgramRow(
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 6.dp),
+                        //overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(horizontal = 6.dp)
+                            .basicMarquee(
+                                iterations = Int.MAX_VALUE,      // 无限循环
+                                velocity = 30.dp,                // 滚动速度
+                                spacing = MarqueeSpacing(0.dp)   // 头尾间距
+                            ),
                     )
                 }
             }

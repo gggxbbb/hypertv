@@ -1,6 +1,8 @@
 package icu.gxb.hypertv.ui
 
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,7 +54,7 @@ internal fun ChannelRow(
             text = channelNumber.toString().padStart(3, ' '),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = NUMBER_TEXT_ALPHA),
             style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.width(48.dp),
+            modifier = Modifier.width(32.dp),
         )
         // 台标：统一灰色块占位 + Coil 异步加载（磁盘缓存默认开启）
         Box(
@@ -75,10 +77,15 @@ internal fun ChannelRow(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            //overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 16.dp),
+                .padding(start = 16.dp)
+                .basicMarquee(
+                    iterations = Int.MAX_VALUE,      // 无限循环
+                    velocity = 30.dp,                // 滚动速度
+                    spacing = MarqueeSpacing(0.dp)   // 头尾间距
+                ),
         )
         // 收藏标记（行尾 ★）
         if (channel.isFavorite) {
