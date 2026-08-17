@@ -155,4 +155,112 @@ class M3uParserTest {
         assertNull(ch.catchupDays)
         assertNull(ch.catchupSource)
     }
+
+    // ---- txt 直播源格式 ----
+
+    @Test
+    fun `txt genre line groups following channels`() {
+        val content = """
+            央视频道,#genre#
+            CCTV-1,http://223.110.255.208:6610/jsyd/live1/G_CCTV-1-MD/G_CCTV-1-MD/1.m3u8
+            CCTV-2,http://223.110.255.209:6610/jsyd/live1/G_CCTV-2-MD/G_CCTV-2-MD/1.m3u8
+        """.trimIndent()
+
+        val result = parser.parse(content)
+
+        assertEquals(2, result.channels.size)
+        val first = result.channels[0]
+        assertEquals("CCTV-1", first.name)
+        assertEquals("http://223.110.255.208:6610/jsyd/live1/G_CCTV-1-MD/G_CCTV-1-MD/1.m3u8", first.url)
+        assertEquals("央视频道", first.groupName)
+        assertNull(first.logoUrl)
+        assertNull(first.epgId)
+        assertNull(first.catchup)
+        assertNull(first.catchupDays)
+        assertNull(first.catchupSource)
+
+        assertEquals("CCTV-2", result.channels[1].name)
+        assertEquals("央视频道", result.channels[1].groupName)
+        assertEquals(listOf("央视频道"), result.groups)
+    }
+
+    @Test
+    fun `txt channel without genre line has empty group name`() {
+        val content = """
+            CCTV-1,http://s.example/1.m3u8
+            凤凰卫视 HD,https://s.example/2.m3u8
+        """.trimIndent()
+
+        val result = parser.parse(content)
+
+        assertEquals(2, result.channels.size)
+        assertEquals("CCTV-1", result.channels[0].name)
+        assertEquals("", result.channels[0].groupName)
+        // 频道名允许含空格，trim 仅去除首尾空白
+        assertEquals("凤凰卫视 HD", result.channels[1].name)
+        assertEquals("https://s.example/2.m3u8", result.channels[1].url)
+        assertTrue(result.groups.isEmpty())
+    }
+
+    @Test
+    fun `txt multiple genre groups assign channels correctly`() {
+        val content = """
+            体育,#genre#
+            CCTV-5,http://s.example/cctv5.m3u8
+            新闻,#genre#
+            CCTV-13,http://s.example/cctv13.m3u8
+            CCTV-1,http://s.example/cctv1.m3u8
+            少儿,#genre#
+        """.trimIndent()
+
+        val result = parser.parse(content)
+
+        assertEquals(3, result.channels.size)
+        assertEquals("体育", result.channels[0].groupName)
+        assertEquals("新闻", result.channels[1].groupName)
+        assertEquals("新闻", result.channels[2].groupName)
+        assertEquals(listOf("体育", "新闻"), result.groups)
+    }
+
+    @Test
+    fun `txt tolerates blank garbage and non-url lines`() {
+        val content = """
+            更新时间 2024-01-01
+            卫视,这不是一个URL
+            CCTV-1,http://s.example/1.m3u8
+            凤凰卫视,https://s.example/2.m3u8
+            卫视,
+
+            新闻,无scheme的文本行
+            ,http://s.example/no-name.m3u8
+            abc,def,http://s.example/multi-comma.m3u8
+        """.trimIndent()
+
+        val result = parser.parse(content)
+
+        // 只有两个合法 频道,URL 行生成了频道，其余全部静默跳过
+        assertEquals(2, result.channels.size)
+        assertEquals("CCTV-1", result.channels[0].name)
+        assertEquals("http://s.example/1.m3u8", result.channels[0].url)
+        assertEquals("凤凰卫视", result.channels[1].name)
+        assertEquals("https://s.example/2.m3u8", result.channels[1].url)
+    }
+
+    @Test
+    fun `txt-like content containing extinf is parsed as m3u`() {
+        val content = """
+            央视频道,#genre#
+            CCTV-1,http://s.example/1.m3u8
+            #EXTINF:-1 group-title="新闻",CCTV-1 高清
+            http://s.example/2.m3u8
+        """.trimIndent()
+
+        val result = parser.parse(content)
+
+        // 有 #EXTINF 行 → 走 M3U 路径：txt 行被忽略，只解析出 1 个频道
+        assertEquals(1, result.channels.size)
+        assertEquals("CCTV-1 高清", result.channels[0].name)
+        assertEquals("http://s.example/2.m3u8", result.channels[0].url)
+        assertEquals("新闻", result.channels[0].groupName)
+    }
 }
