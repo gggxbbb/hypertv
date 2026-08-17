@@ -58,7 +58,7 @@ class ChannelEpgTimelineStateTest {
         assertFalse(loaderCalled)
         assertTrue(state.programs.isEmpty())
         assertFalse(state.isLoading)
-        assertEquals(ms(11), state.windowStartMs) // 14 点整点 - 3h
+        assertEquals(ms(13), state.windowStartMs) // 14 点整点 - 1h
     }
 
     @Test
@@ -84,7 +84,7 @@ class ChannelEpgTimelineStateTest {
 
         state.loadFor(channel(), ms(14, 37), zone)
 
-        val expectedStart = ms(11) // 14 点整点 - 3h
+        val expectedStart = ms(13) // 14 点整点 - 1h
         assertEquals(listOf(expectedStart to (expectedStart + WINDOW_DURATION_MS)), windows)
         assertFalse(state.isLoading)
     }

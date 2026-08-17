@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * EpgGuideState 状态机单测（纯 JVM，ticket 10）：
- * - 打开：窗口默认当前小时 ±3h、焦点首行、只加载前 GUIDE_PAGE_SIZE 个频道
+ * - 打开：窗口默认当前整点往前 1h（总长 4h）、焦点首行、只加载前 GUIDE_PAGE_SIZE 个频道
  * - 上下键移动行焦点（两端钳制、底部翻页追加）
  * - 左右键移动时间窗口（±1 小时）
  * - 关闭清理节目缓存
@@ -31,7 +31,7 @@ class EpgGuideStateTest {
         assertTrue(guide.isOpen)
         assertEquals(0, guide.focusedRow)
         assertEquals(GUIDE_PAGE_SIZE, guide.loadedChannelCount)
-        assertEquals(ms(11), guide.windowStartMs) // 14 - 3
+        assertEquals(ms(13), guide.windowStartMs) // 14 - 1
     }
 
     @Test

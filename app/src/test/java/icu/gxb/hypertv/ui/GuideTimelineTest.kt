@@ -11,7 +11,7 @@ import org.junit.Test
 /**
  * Guide 时间轴纯逻辑单测（ticket 10）：
  * - 节目条 x/width 布局（窗口内 / 边界裁剪 / 无交集）
- * - 窗口小时对齐与移动（±1 小时，打开默认以当前小时为中心 ±3h）
+ * - 窗口小时对齐与移动（±1 小时，打开默认当前整点往前 1h、总长 4h）
  * - 当前节目查询（正在播放 / 节目间隙 / 边界时刻）
  * - 时间格式化（HH:mm）
  */
@@ -22,7 +22,7 @@ class GuideTimelineTest {
     private fun ms(hour: Int, minute: Int = 0) =
         ZonedDateTime.of(2026, 8, 17, hour, minute, 0, 0, zone).toInstant().toEpochMilli()
 
-    private val windowStart = ms(11) // 11:00
+    private val windowStart = ms(13) // 13:00
     private val windowEnd = windowStart + WINDOW_DURATION_MS // 17:00
 
     private fun prog(id: String, start: Long, end: Long) = EpgProgramEntity(
@@ -39,26 +39,26 @@ class GuideTimelineTest {
 
     @Test
     fun `layout full program inside window maps position and width`() {
-        val layout = layoutProgram(windowStart, windowEnd, ms(12), ms(13), 600f)
+        val layout = layoutProgram(windowStart, windowEnd, ms(14), ms(15), 600f)
         assertNotNull(layout)
-        assertEquals(100f, layout!!.x, 0.01f) // 1/6 × 600
-        assertEquals(100f, layout.width, 0.01f)
+        assertEquals(150f, layout!!.x, 0.01f) // 1/4 × 600
+        assertEquals(150f, layout.width, 0.01f)
     }
 
     @Test
     fun `layout program straddling window start is clipped to window`() {
-        val layout = layoutProgram(windowStart, windowEnd, ms(10), ms(12), 600f)
+        val layout = layoutProgram(windowStart, windowEnd, ms(12), ms(14), 600f)
         assertNotNull(layout)
         assertEquals(0f, layout!!.x, 0.01f)
-        assertEquals(100f, layout.width, 0.01f) // 可见区间 [11:00, 12:00)
+        assertEquals(150f, layout.width, 0.01f) // 可见区间 [13:00, 14:00)
     }
 
     @Test
     fun `layout program straddling window end is clipped to window`() {
         val layout = layoutProgram(windowStart, windowEnd, ms(16), ms(18), 600f)
         assertNotNull(layout)
-        assertEquals(500f, layout!!.x, 0.01f)
-        assertEquals(100f, layout.width, 0.01f) // 可见区间 [16:00, 17:00)
+        assertEquals(450f, layout!!.x, 0.01f)
+        assertEquals(150f, layout.width, 0.01f) // 可见区间 [16:00, 17:00)
     }
 
     @Test
@@ -90,10 +90,10 @@ class GuideTimelineTest {
     }
 
     @Test
-    fun `guide window start centers current hour minus 3 hours`() {
-        assertEquals(ms(11), guideWindowStartFor(ms(14, 37), zone)) // 14 - 3
-        // 跨天回绕：02:05 → 02:00 整点 - 3h = 前一天 23:00
-        assertEquals(ms(0) - HOUR_MS, guideWindowStartFor(ms(2, 5), zone))
+    fun `guide window start is current hour minus 1 hour`() {
+        assertEquals(ms(13), guideWindowStartFor(ms(14, 37), zone)) // 14 - 1
+        // 跨天回绕：02:05 → 02:00 整点 - 1h = 01:00
+        assertEquals(ms(1), guideWindowStartFor(ms(2, 5), zone))
     }
 
     @Test
@@ -134,6 +134,6 @@ class GuideTimelineTest {
         assertEquals("14:00", formatTime(ms(14), zone))
         assertEquals("14:37", formatTime(ms(14, 37), zone))
         assertEquals("11:00", formatHourTick(ms(11), zone))
-        assertEquals("11:00 - 17:00", formatWindowRange(windowStart, WINDOW_DURATION_MS, zone))
+        assertEquals("13:00 - 17:00", formatWindowRange(windowStart, WINDOW_DURATION_MS, zone))
     }
 }

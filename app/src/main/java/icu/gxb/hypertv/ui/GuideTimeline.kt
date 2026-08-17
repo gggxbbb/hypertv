@@ -24,11 +24,11 @@ import java.time.ZonedDateTime
  */
 val EPG_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
 
-/** 时间窗口总时长（小时）：以当前小时为中心 ±[WINDOW_CENTER_HOURS] */
-const val WINDOW_DURATION_HOURS = 6
+/** 时间窗口总时长（小时） */
+const val WINDOW_DURATION_HOURS = 4
 
-/** 打开节目表时窗口中心相对当前小时的偏移 */
-const val WINDOW_CENTER_HOURS = 3
+/** 窗口起点相对当前整点的回看小时数（终点 = 起点 + 窗口时长，即 [-1h, +3h)） */
+const val WINDOW_CENTER_HOURS = 1
 
 /** 左右键一次滚动的小时数 */
 const val WINDOW_STEP_HOURS = 1
@@ -39,7 +39,7 @@ const val GUIDE_PAGE_SIZE = 50
 /** 一小时毫秒数 */
 const val HOUR_MS = 3_600_000L
 
-/** 六小时窗口毫秒数 */
+/** 四小时窗口毫秒数 */
 val WINDOW_DURATION_MS: Long = WINDOW_DURATION_HOURS * HOUR_MS
 
 /** 节目条在网格中的水平位置：x 为距窗口起始的像素偏移，width 为条宽（像素）。 */
@@ -58,8 +58,8 @@ fun alignToHour(ms: Long, zone: ZoneId = EPG_ZONE): Long {
 }
 
 /**
- * Guide 打开时的默认窗口起始：当前小时向前偏移 [WINDOW_CENTER_HOURS] 小时。
- * 例如 now=14:37 → 窗口 [11:00, 17:00)（以 14 点为中心 ±3 小时）。
+ * Guide 打开时的默认窗口起始：当前整点向前偏移 [WINDOW_CENTER_HOURS] 小时（保持整点对齐）。
+ * 例如 now=14:37 → 窗口 [13:00, 17:00)（起点 13:00 = 14 点整 - 1h，时长 4h）。
  */
 fun guideWindowStartFor(nowMs: Long, zone: ZoneId = EPG_ZONE): Long =
     alignToHour(nowMs, zone) - WINDOW_CENTER_HOURS * HOUR_MS
