@@ -53,7 +53,6 @@ import icu.gxb.hypertv.player.Channel
 import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
 import icu.gxb.hypertv.player.PlayerState
-import icu.gxb.hypertv.server.SERVER_PORT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -86,6 +85,7 @@ fun PlayerScreen(
     controller: PlayerController,
     favoriteStore: FavoriteStore,
     repository: HypertvRepository,
+    serverPort: Int?,
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsState()
@@ -106,9 +106,9 @@ fun PlayerScreen(
     val infoOverlay = remember { InfoOverlayState() }
     val guide = remember { EpgGuideState() }
     val about = remember { AboutScreenState() }
-    // 关于页信息只读展示（本地读取，不依赖 Ktor 服务状态，ADR-0002）
-    val aboutInfo = remember {
-        AboutInfo(versionName = BuildConfig.VERSION_NAME, ip = getLocalIpv4(), port = SERVER_PORT)
+    // 关于页信息只读展示（本地读取，端口来自内嵌服务实际 listen 状态，ADR-0002）
+    val aboutInfo = remember(serverPort) {
+        AboutInfo(versionName = BuildConfig.VERSION_NAME, ip = getLocalIpv4(), port = serverPort)
     }
     val listState = rememberLazyListState()
     val tabListState = rememberLazyListState()

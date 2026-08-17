@@ -19,12 +19,14 @@ class ServerModuleTest {
     private fun ApplicationTestBuilder.hypertvApp(
         version: String = "9.9-test",
         ipProvider: () -> String? = { "192.168.1.10" },
+        portProvider: () -> Int? = { 56789 },
         webAssetLoader: (String) -> ByteArray? = { null },
         managementStore: FakeChannelManagementStore = FakeChannelManagementStore(),
     ) = application {
         hypertvModule(
             version = version,
             ipProvider = ipProvider,
+            portProvider = portProvider,
             webAssetLoader = webAssetLoader,
             playlistStore = FakePlaylistImportStore(),
             managementStore = managementStore,
@@ -42,7 +44,7 @@ class ServerModuleTest {
         val status = json.decodeFromString<ServerStatus>(response.bodyAsText())
         assertEquals("9.9-test", status.version)
         assertEquals("192.168.1.10", status.ip)
-        assertEquals(SERVER_PORT, status.port)
+        assertEquals(56789, status.port)
     }
 
     @Test
@@ -54,7 +56,18 @@ class ServerModuleTest {
         assertEquals(HttpStatusCode.OK, response.status)
         val status = json.decodeFromString<ServerStatus>(response.bodyAsText())
         assertEquals(null, status.ip)
-        assertEquals(SERVER_PORT, status.port)
+        assertEquals(56789, status.port)
+    }
+
+    @Test
+    fun `api status reports null port when server not started`() = testApplication {
+        hypertvApp(portProvider = { null })
+
+        val response = client.get("/api/status")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val status = json.decodeFromString<ServerStatus>(response.bodyAsText())
+        assertEquals(null, status.port)
     }
 
     @Test

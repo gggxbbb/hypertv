@@ -47,6 +47,8 @@ import kotlinx.serialization.json.Json
 fun Application.hypertvModule(
     version: String,
     ipProvider: () -> String? = ::getLocalIpv4,
+    /** 内嵌服务实际监听端口；服务未启动/启动失败时为 null（/api/status 返回） */
+    portProvider: () -> Int? = { null },
     webAssetLoader: (path: String) -> ByteArray? = { null },
     playlistStore: PlaylistImportStore,
     managementStore: ChannelManagementStore,
@@ -74,7 +76,7 @@ fun Application.hypertvModule(
         get("/api/status") {
             call.respond(
                 HttpStatusCode.OK,
-                ServerStatus(version = version, ip = ipProvider(), port = SERVER_PORT),
+                ServerStatus(version = version, ip = ipProvider(), port = portProvider()),
             )
         }
 

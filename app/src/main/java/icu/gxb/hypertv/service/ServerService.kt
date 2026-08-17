@@ -11,16 +11,22 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import icu.gxb.hypertv.R
+import icu.gxb.hypertv.di.ApplicationScope
 import icu.gxb.hypertv.net.getLocalIpv4
 import icu.gxb.hypertv.server.HypertvServer
-import icu.gxb.hypertv.server.SERVER_PORT
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /**
  * 承载内嵌 HTTP 服务的前台服务：
  * - 常驻通知（Android 8+ 必须走通知渠道）
  * - START_STICKY：进程被杀后系统重启服务时自动恢复
  * - 重启（intent 为 null）时若服务未运行则重新拉起
+ *
+ * 动态端口改造：实际端口由 [HypertvServer.port] StateFlow 提供（null = 启动中/失败），
+ * 通知随端口确定后刷新为含真实 WebUI 地址的文案，避免显示错误的固定端口。
  */
 @AndroidEntryPoint
 class ServerService : Service() {
@@ -28,30 +34,55 @@ class ServerService : Service() {
     @Inject
     lateinit var server: HypertvServer
 
+    @Inject
+    @ApplicationScope
+    lateinit var applicationScope: CoroutineScope
+
+    private var notificationJob: Job? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundCompat(buildNotification())
+        startForegroundCompat(buildNotification(port = null))
         server.start()
+        observePortForNotification()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        notificationJob?.cancel()
+        notificationJob = null
         server.stop()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun buildNotification(): Notification {
-        val ip = getLocalIpv4() ?: "无法获取 IP"
-        val webuiUrl = "http://$ip:$SERVER_PORT"
+    /** 端口确定后刷新前台通知（startForeground 重复调用即更新内容）。 */
+    private fun observePortForNotification() {
+        if (notificationJob?.isActive == true) return
+        notificationJob = applicationScope.launch {
+            server.port.collect { port ->
+                startForegroundCompat(buildNotification(port))
+            }
+        }
+    }
+
+    private fun buildNotification(port: Int?): Notification {
+        val ip = getLocalIpv4()
+        val webuiUrl = if (ip != null && port != null) "http://$ip:$port" else null
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.server_notification_title))
-            .setContentText(getString(R.string.server_notification_text, webuiUrl))
+            .setContentText(
+                if (webuiUrl != null) {
+                    getString(R.string.server_notification_text, webuiUrl)
+                } else {
+                    getString(R.string.server_notification_starting)
+                },
+            )
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

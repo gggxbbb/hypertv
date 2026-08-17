@@ -25,21 +25,26 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import icu.gxb.hypertv.net.getLocalIpv4
-import icu.gxb.hypertv.server.SERVER_PORT
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * 引导页：无直播源时恒显。
  *
- * 电视端零配置（ADR 0002）：此处只展示 WebUI 地址（IP + 端口 + 二维码），
+ * 电视端零配置（ADR 0002）：此处只展示 WebUI 地址（IP + 实际端口 + 二维码），
  * 所有配置都在手机/电脑浏览器完成。
+ *
+ * 端口来自内嵌服务实际 listen 状态（动态端口改造）：[port] 为 null 时表示
+ * 服务未启动/启动失败，不展示错误的固定端口，引导用户稍后通过关于页获取连接信息。
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun BootstrapScreen(modifier: Modifier = Modifier) {
+fun BootstrapScreen(
+    port: Int?,
+    modifier: Modifier = Modifier,
+) {
     val ip = getLocalIpv4()
-    val webuiUrl = ip?.let { "http://$it:$SERVER_PORT" }
+    val webuiUrl = port?.let { p -> ip?.let { "http://$it:$p" } }
     val qrBitmap by produceState<ImageBitmap?>(initialValue = null, webuiUrl) {
         value = webuiUrl?.let { url ->
             withContext(Dispatchers.Default) { generateQrCode(url)?.asImageBitmap() }
@@ -80,7 +85,7 @@ fun BootstrapScreen(modifier: Modifier = Modifier) {
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "端口 $SERVER_PORT",
+                    text = "端口 $port",
                     fontSize = 22.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -98,9 +103,16 @@ fun BootstrapScreen(modifier: Modifier = Modifier) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            } else {
+            } else if (ip == null) {
                 Text(
                     text = "无法获取局域网 IP，请检查网络连接",
+                    fontSize = 24.sp,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = "WebUI 服务未启动，端口分配中…请稍后查看关于页获取连接信息",
                     fontSize = 24.sp,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

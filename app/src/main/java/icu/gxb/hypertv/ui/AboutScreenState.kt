@@ -6,20 +6,20 @@ import androidx.compose.runtime.setValue
 
 /**
  * 关于页展示的只读连接信息（ticket 11，ADR-0002）：
- * 版本号、局域网 IP、端口与派生的 WebUI 地址。全部本地读取，
- * 不依赖 Ktor 服务状态（服务未起来时关于页/引导页仍可展示连接信息）。
+ * 版本号、局域网 IP、实际监听端口与派生的 WebUI 地址。全部本地读取，
+ * 端口来自内嵌服务实际 listen 状态（动态端口改造）：null 表示服务未启动/启动失败。
  */
 internal data class AboutInfo(
     /** App 版本名（BuildConfig.VERSION_NAME） */
     val versionName: String,
     /** 局域网 IPv4；未取到（未联网/无可用接口）时为 null */
     val ip: String?,
-    /** 内嵌服务监听端口（ServerConfig.SERVER_PORT） */
-    val port: Int,
+    /** 内嵌服务实际监听端口；服务未启动/启动失败时为 null */
+    val port: Int?,
 ) {
-    /** WebUI 地址；无 IP 时为 null（页面显示"无法获取局域网 IP"） */
+    /** WebUI 地址；IP 或端口任一缺失时为 null（页面显示"服务未启动/无法获取局域网 IP"） */
     val webUiUrl: String?
-        get() = ip?.let { "http://$it:$port" }
+        get() = port?.let { p -> ip?.let { "http://$it:$p" } }
 }
 
 /**

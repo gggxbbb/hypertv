@@ -77,7 +77,7 @@ internal fun AboutScreen(
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "端口：${info.port}",
+                text = "端口：${info.port ?: "服务未启动"}",
                 fontSize = 24.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

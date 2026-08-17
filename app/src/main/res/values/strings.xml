@@ -6,4 +6,5 @@
     <string name="server_channel_description">承载 HyperTV WebUI 的内嵌 HTTP 服务</string>
     <string name="server_notification_title">HyperTV 服务运行中</string>
     <string name="server_notification_text">WebUI: %1$s</string>
+    <string name="server_notification_starting">WebUI 服务启动中，端口分配完成后自动更新…</string>
 </resources>

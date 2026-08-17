@@ -11,6 +11,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import icu.gxb.hypertv.data.repository.HypertvRepository
 import icu.gxb.hypertv.player.FavoriteStore
 import icu.gxb.hypertv.player.PlayerController
+import icu.gxb.hypertv.server.HypertvServer
 import icu.gxb.hypertv.ui.BootstrapScreen
 import icu.gxb.hypertv.ui.PlayerScreen
 import icu.gxb.hypertv.ui.theme.HyperTVTheme
@@ -39,20 +40,26 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var repository: HypertvRepository
 
+    /** 内嵌服务（动态端口改造）：实际监听端口经 port StateFlow 供引导页/关于页读取 */
+    @Inject
+    lateinit var server: HypertvServer
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             HyperTVTheme {
                 val channels by playerController.channels.collectAsState()
+                val serverPort by server.port.collectAsState()
                 if (channels.isEmpty()) {
-                    BootstrapScreen()
+                    BootstrapScreen(port = serverPort)
                 } else {
                     PlayerScreen(
                         player = exoPlayer,
                         controller = playerController,
                         favoriteStore = favoriteStore,
                         repository = repository,
+                        serverPort = serverPort,
                     )
                 }
             }

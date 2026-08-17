@@ -9,6 +9,6 @@ data class ServerStatus(
     val version: String,
     /** 局域网 IPv4 地址；未取到时为 null。 */
     val ip: String?,
-    /** 内嵌服务监听端口。 */
-    val port: Int,
+    /** 内嵌服务实际监听端口；服务未启动/启动失败时为 null。 */
+    val port: Int?,
 )
