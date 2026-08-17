@@ -1,5 +1,7 @@
 package icu.gxb.hypertv.epg
 
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
+
 /**
  * 匹配规则编排（v3）：读取全部规则并应用到当前频道。
  *
@@ -8,7 +10,7 @@ package icu.gxb.hypertv.epg
  */
 class MatchRuleManager(private val store: EpgStore) {
 
-    /** 应用全部规则，返回实际更新（产生 epgId 写入）的频道数。 */
+    /** 应用全部规则，返回实际更新（产生 epgId 写入）的频道数；来源统一写 "rule"。 */
     suspend fun applyAll(): Int {
         val channels = store.channels()
         val rules = store.matchRules()
@@ -17,7 +19,13 @@ class MatchRuleManager(private val store: EpgStore) {
             channels = channels,
             rules = rules.map { MatchRule(it.epgChannelId, it.keyword, it.ruleType) },
         )
-        if (result.updates.isNotEmpty()) store.updateChannelEpgIds(result.updates)
+        if (result.updates.isNotEmpty()) {
+            store.updateChannelEpgMatches(
+                result.updates.map { (id, epgId) ->
+                    ChannelEpgMatchUpdate(channelId = id, epgId = epgId, source = EpgMatchSource.RULE)
+                },
+            )
+        }
         return result.updates.size
     }
 }

@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
 import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
@@ -27,8 +28,8 @@ interface EpgStore {
     /** 按名称读取分组（不存在返回 null） */
     suspend fun groupByName(name: String): GroupEntity?
 
-    /** 写入频道 epgId（EPG 匹配后回写 xmltvId，供后续查询直接使用） */
-    suspend fun updateChannelEpgIds(updates: List<Pair<String, String>>)
+    /** 写入频道 epgId + 匹配来源（EPG 匹配/规则后回写，供后续查询直接使用） */
+    suspend fun updateChannelEpgMatches(updates: List<ChannelEpgMatchUpdate>)
 
     /** 设置分组级 EPG 源（url 为 null 表示清除覆盖，回退全局源） */
     suspend fun updateGroupEpgUrl(groupName: String, url: String?)

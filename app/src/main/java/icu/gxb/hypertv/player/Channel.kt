@@ -22,4 +22,6 @@ data class Channel(
     val number: Int = 0,
     /** EPG 匹配回写后的 channelEpgId（Info 浮层/节目表按它查节目），可能为空 */
     val epgId: String? = null,
+    /** EPG 匹配来源（v5）：null=未匹配；"manual" | "rule" | "level1"~"level5"（电视端暂不使用） */
+    val epgMatchSource: String? = null,
 )

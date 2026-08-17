@@ -38,6 +38,8 @@ class ManagementRouteTest {
         hidden: Boolean = false,
         fav: Boolean = false,
         logo: String? = null,
+        epgId: String? = null,
+        epgMatchSource: String? = null,
     ) = ChannelEntity(
         id = id,
         sourceId = "src-1",
@@ -48,7 +50,8 @@ class ManagementRouteTest {
         orderIndex = order,
         isFavorite = fav,
         isHidden = hidden,
-        epgId = null,
+        epgId = epgId,
+        epgMatchSource = epgMatchSource,
         catchup = null,
         catchupDays = null,
         catchupSource = null,
@@ -197,12 +200,15 @@ class ManagementRouteTest {
         assertEquals("cctv1.example", dto.epgId)
         assertEquals("cctv1.example", store.channel("a")?.epgId)
         assertTrue(store.channel("a")?.epgManual == true)
+        // 手动绑定写来源 manual（v5）
+        assertEquals("manual", dto.epgMatchSource)
+        assertEquals("manual", store.channel("a")?.epgMatchSource)
     }
 
     @Test
     fun `update channel without epgId keeps existing manual binding`() = testApplication {
         val store = FakeChannelManagementStore().apply {
-            seedChannel(makeChannel("a", "CCTV-1", order = 0).copy(epgId = "cctv1.example", epgManual = true))
+            seedChannel(makeChannel("a", "CCTV-1", order = 0).copy(epgId = "cctv1.example", epgManual = true, epgMatchSource = "manual"))
         }
         hypertvApp(store)
 
@@ -214,12 +220,13 @@ class ManagementRouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("cctv1.example", store.channel("a")?.epgId)
         assertTrue(store.channel("a")?.epgManual == true)
+        assertEquals("manual", store.channel("a")?.epgMatchSource)
     }
 
     @Test
     fun `update channel with null epgId clears binding and resets manual flag`() = testApplication {
         val store = FakeChannelManagementStore().apply {
-            seedChannel(makeChannel("a", "CCTV-1", order = 0).copy(epgId = "cctv1.example", epgManual = true))
+            seedChannel(makeChannel("a", "CCTV-1", order = 0).copy(epgId = "cctv1.example", epgManual = true, epgMatchSource = "manual"))
         }
         hypertvApp(store)
 
@@ -231,6 +238,29 @@ class ManagementRouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertNull(store.channel("a")?.epgId)
         assertTrue(store.channel("a")?.epgManual == false)
+        // 清除绑定同时清来源（v5）
+        assertNull(store.channel("a")?.epgMatchSource)
+    }
+
+    // ---- GET /api/channels 返回 epgMatchSource（v5）----
+
+    @Test
+    fun `channels returns epgMatchSource for each channel`() = testApplication {
+        val store = FakeChannelManagementStore().apply {
+            seedChannel(makeChannel("a", "CCTV-1", order = 0, epgId = "cctv1.example", epgMatchSource = "level3"))
+            seedChannel(makeChannel("b", "CCTV-2", order = 1, epgId = "manual.example", epgMatchSource = "manual"))
+            seedChannel(makeChannel("c", "无 EPG", order = 2))
+        }
+        hypertvApp(store)
+
+        val response = client.get("/api/channels")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val list = json.decodeFromString<List<ChannelDTO>>(response.bodyAsText())
+        assertEquals(3, list.size)
+        assertEquals("level3", list.first { it.id == "a" }.epgMatchSource)
+        assertEquals("manual", list.first { it.id == "b" }.epgMatchSource)
+        assertNull(list.first { it.id == "c" }.epgMatchSource)
     }
 
     // ---- 动态频道号（v3）：排序后位置 + 1，删除频道后仍连续 ----

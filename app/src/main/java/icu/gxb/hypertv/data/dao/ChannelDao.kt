@@ -8,6 +8,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import icu.gxb.hypertv.data.db.HypertvDatabase
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
 import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -38,14 +39,17 @@ abstract class ChannelDao(
     @Query("SELECT * FROM channels WHERE id = :id LIMIT 1")
     abstract suspend fun getByIdOnce(id: String): ChannelEntity?
 
-    /** EPG 匹配后回写频道 epgId（xmltvId），供查询直接按频道 epgId 走索引 */
-    @Query("UPDATE channels SET epgId = :epgId WHERE id = :id")
-    protected abstract suspend fun updateEpgId(id: String, epgId: String)
+    /**
+     * EPG 匹配后回写频道 epgId + 来源（xmltvId + levelN/rule），供查询直接按频道 epgId 走索引；
+     * 来源与 epgId 必须同步写（原子一致）。
+     */
+    @Query("UPDATE channels SET epgId = :epgId, epgMatchSource = :source WHERE id = :id")
+    protected abstract suspend fun updateEpgMatch(id: String, epgId: String, source: String)
 
-    /** 批量回写 epgId（单事务；EPG 刷新后只更新发生变化的频道） */
+    /** 批量回写 epgId + 来源（单事务；EPG 刷新/规则应用后只更新发生变化的频道） */
     @Transaction
-    open suspend fun updateEpgIds(updates: List<Pair<String, String>>) {
-        updates.forEach { (id, epgId) -> updateEpgId(id, epgId) }
+    open suspend fun updateChannelEpgMatches(updates: List<ChannelEpgMatchUpdate>) {
+        updates.forEach { update -> updateEpgMatch(update.channelId, update.epgId, update.source) }
     }
 
     /** 增量合并按频道 URL 匹配（ADR-0004），URL 归一化由调用方负责 */

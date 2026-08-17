@@ -37,6 +37,7 @@ class EpgRefresherTest {
         epgId: String? = null,
         groupName: String = "新闻",
         epgManual: Boolean = false,
+        epgMatchSource: String? = null,
     ) = ChannelEntity(
         id = id,
         sourceId = "src-1",
@@ -47,6 +48,7 @@ class EpgRefresherTest {
         orderIndex = 0,
         epgId = epgId,
         epgManual = epgManual,
+        epgMatchSource = epgMatchSource,
         catchup = null,
         catchupDays = null,
         catchupSource = null,
@@ -89,10 +91,13 @@ class EpgRefresherTest {
 
         // 写库：只有被匹配的 XMLTV 频道的节目被写入
         assertEquals(listOf("cctv1.example", "cctv5.example"), store.programs.map { it.channelEpgId }.sorted())
-        // 频道 epgId 已回写：ch-1 本就相等不写，ch-2 从 null 补全，ch-3 未匹配不动
-        assertEquals(listOf("ch-2" to "cctv5.example"), store.epgIdWrites)
+        // 频道 epgId + 来源已回写：ch-1 本就有相等 epgId 但补写 level1 来源，ch-2 从 null 补全（level3），ch-3 未匹配不动
+        assertEquals(listOf("ch-1" to "cctv1.example", "ch-2" to "cctv5.example"), store.epgIdWrites)
         assertEquals("cctv5.example", store.channels.first { it.id == "ch-2" }.epgId)
+        assertEquals("level1", store.channels.first { it.id == "ch-1" }.epgMatchSource)
+        assertEquals("level3", store.channels.first { it.id == "ch-2" }.epgMatchSource)
         assertNull(store.channels.first { it.id == "ch-3" }.epgId)
+        assertNull(store.channels.first { it.id == "ch-3" }.epgMatchSource)
         // last_update 更新 + 过期清理已执行
         assertEquals(nowMillis, store.lastUpdate)
         assertTrue(store.expiredCleanups.contains(nowMillis))
@@ -372,8 +377,8 @@ class EpgRefresherTest {
     fun `refresh skips channels with manual epg binding`() = runTest {
         val store = FakeEpgStore().apply {
             sources += source("http://epg.example.com/xmltv.xml")
-            // 手动绑定 cctv5.example：即使三级匹配到 cctv1.example 也不回写
-            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv5.example", epgManual = true)
+            // 手动绑定 cctv5.example：即使三级匹配到 cctv1.example 也不回写，来源保持 manual
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv5.example", epgManual = true, epgMatchSource = "manual")
         }
         val refresher = refresher(store, fetcher = { xmltvXml.toByteArray() })
 
@@ -383,6 +388,7 @@ class EpgRefresherTest {
         assertTrue(store.epgIdWrites.isEmpty())
         assertEquals("cctv5.example", store.channels.first { it.id == "ch-1" }.epgId)
         assertTrue(store.channels.first { it.id == "ch-1" }.epgManual)
+        assertEquals("manual", store.channels.first { it.id == "ch-1" }.epgMatchSource)
     }
 
     @Test
@@ -399,7 +405,8 @@ class EpgRefresherTest {
 
         assertEquals("custom.example", store.channels.first { it.id == "ch-1" }.epgId)
         assertEquals("custom.example", store.epgIdWrites.single().second)
-        // 规则只覆盖 epgId（epgManual 保持 false），刷新可再次更新
+        // 规则命中写来源 rule（覆盖自动匹配的 level 来源）；epgManual 保持 false，刷新可再次更新
+        assertEquals("rule", store.channels.first { it.id == "ch-1" }.epgMatchSource)
         assertFalse(store.channels.first { it.id == "ch-1" }.epgManual)
     }
 
@@ -426,6 +433,47 @@ class EpgRefresherTest {
 
         assertEquals("existing.example", store.channels.first { it.id == "ch-1" }.epgId)
         assertTrue(store.epgIdWrites.isEmpty())
+    }
+
+    @Test
+    fun `refresh overwrites previous rule source with auto level source`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            // ch-1 此前由规则绑定（source=rule）；本次刷新 name 匹配到 cctv1.example → 自动来源覆盖旧规则来源
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "rule.example", epgMatchSource = "rule")
+        }
+        val refresher = refresher(store, fetcher = { xmltvXml.toByteArray() })
+
+        refresher.refreshGlobal()
+
+        // 自动匹配覆盖旧的规则绑定（epgId + 来源原子更新），来源 = 本次生效的 level3
+        assertEquals("cctv1.example", store.channels.first { it.id == "ch-1" }.epgId)
+        assertEquals("level3", store.channels.first { it.id == "ch-1" }.epgMatchSource)
+    }
+
+    @Test
+    fun `refresh writes level5 source for contains match`() = runTest {
+        val xml = """
+            <tv>
+              <channel id="fengyun.example"><display-name>风云剧场</display-name></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="fengyun.example">
+                <title>剧场节目</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            channels += channel("ch-1", "CCTV-风云剧场")
+        }
+        val refresher = refresher(store, fetcher = { xml.toByteArray() })
+
+        val result = refresher.refreshGlobal()
+
+        assertEquals("fengyun.example", store.channels.first { it.id == "ch-1" }.epgId)
+        assertEquals("level5", store.channels.first { it.id == "ch-1" }.epgMatchSource)
+        assertEquals(1, result.stats.level5)
+        assertEquals(1, result.stats.matched)
+        assertEquals(listOf("fengyun.example"), store.programs.map { it.channelEpgId })
     }
 
     @Test

@@ -9,6 +9,7 @@ import icu.gxb.hypertv.data.dao.EpgSourceDao
 import icu.gxb.hypertv.data.dao.GroupDao
 import icu.gxb.hypertv.data.dao.PlaylistSourceDao
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
 import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
@@ -69,8 +70,9 @@ class HypertvRepository(
 
     suspend fun deleteChannelsBySource(sourceId: String) = channelDao.deleteBySourceId(sourceId)
 
-    /** 批量回写频道 epgId（EPG 匹配结果写回，单事务） */
-    suspend fun updateChannelEpgIds(updates: List<Pair<String, String>>) = channelDao.updateEpgIds(updates)
+    /** 批量回写频道 epgId + 来源（EPG 匹配/规则结果写回，单事务） */
+    suspend fun updateChannelEpgMatches(updates: List<ChannelEpgMatchUpdate>) =
+        channelDao.updateChannelEpgMatches(updates)
 
     /** 增量合并按 URL 匹配现有频道（ADR-0004），URL 需调用方归一化 */
     suspend fun channelByUrl(url: String): ChannelEntity? = channelDao.getByUrl(url)

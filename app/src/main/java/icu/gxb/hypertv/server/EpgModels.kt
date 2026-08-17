@@ -49,6 +49,7 @@ data class EpgMatchStatsDTO(
     val level2: Int,
     val level3: Int,
     val level4: Int,
+    val level5: Int,
     val rate: Double,
 )
 
@@ -60,6 +61,7 @@ fun EpgMatchStats.toDto(): EpgMatchStatsDTO = EpgMatchStatsDTO(
     level2 = level2,
     level3 = level3,
     level4 = level4,
+    level5 = level5,
     rate = rate,
 )
 

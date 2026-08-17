@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
 import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.m3u.EncodingDetector
@@ -82,7 +83,7 @@ class EpgRefreshStatus {
 
 /**
  * EPG 刷新服务（v3 多源）：逐个拉取启用源 → 编码识别 → 流式解析 → 合并节目 →
- * 三级匹配 → 事务写库 → 回写频道 epgId（跳过 epgManual）→ 应用匹配规则 →
+ * 五级匹配 → 事务写库 → 回写频道 epgId + 匹配来源（跳过 epgManual）→ 应用匹配规则 →
  * 清理过期 → 更新 epg_last_update（ADR-0005）。
  *
  * - 频道与节目通过「channelEpgId == 频道 epgId（回写后的 XMLTV id）」关联，
@@ -170,20 +171,31 @@ class EpgRefresher(
                     .map { it.toEntity() }
                 if (entities.isNotEmpty()) store.upsertPrograms(entities)
 
-                // 回写频道 epgId：epgManual=true 的频道跳过（手动绑定不被覆盖）；
-                // 规则命中优先于三级自动匹配（同一频道规则值覆盖自动匹配值）
-                val merged = LinkedHashMap<String, String>()
+                // 回写频道 epgId + 匹配来源（v5）：epgManual=true 的频道跳过（手动绑定不被覆盖，
+                // 来源保持 manual）；自动命中写入 "levelN"（含 epgId 未变的频道——补写来源，
+                // 供迁移后存量频道在首次刷新补齐）；规则命中优先于自动匹配（同频道规则值覆盖
+                // 自动值并写 "rule"）。最终来源 = 刷新完成后生效来源。
+                val merged = LinkedHashMap<String, ChannelEpgMatchUpdate>()
                 channels.forEach { ch ->
                     if (ch.epgManual) return@forEach
                     val auto = match.mapping[ch.id]
-                    if (auto != null && ch.epgId != auto) merged[ch.id] = auto
+                    if (auto != null) {
+                        merged[ch.id] = ChannelEpgMatchUpdate(
+                            channelId = ch.id,
+                            epgId = auto,
+                            // mapping 与 levels 在匹配器内同键写入，命中必然有级别
+                            source = EpgMatchSource.level(match.levels.getValue(ch.id)),
+                        )
+                    }
                 }
                 val rules = store.matchRules()
                 if (rules.isNotEmpty()) {
                     val ruleResult = applyMatchRules(channels, rules.map { MatchRule(it.epgChannelId, it.keyword, it.ruleType) })
-                    for ((id, epgId) in ruleResult.updates) merged[id] = epgId
+                    for ((id, epgId) in ruleResult.updates) {
+                        merged[id] = ChannelEpgMatchUpdate(channelId = id, epgId = epgId, source = EpgMatchSource.RULE)
+                    }
                 }
-                if (merged.isNotEmpty()) store.updateChannelEpgIds(merged.toList())
+                if (merged.isNotEmpty()) store.updateChannelEpgMatches(merged.values.toList())
 
                 store.deleteExpiredPrograms(now())
                 store.setLastUpdate(now())

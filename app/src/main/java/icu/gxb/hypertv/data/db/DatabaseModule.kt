@@ -30,6 +30,7 @@ object DatabaseModule {
                 HypertvDatabase.MIGRATION_1_2,
                 HypertvDatabase.MIGRATION_2_3,
                 HypertvDatabase.MIGRATION_3_4,
+                HypertvDatabase.MIGRATION_4_5,
             )
             .build()
 

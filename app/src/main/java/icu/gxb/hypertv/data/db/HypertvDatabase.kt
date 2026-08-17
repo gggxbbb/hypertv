@@ -36,7 +36,7 @@ import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
         EpgMatchRuleEntity::class,
         EpgChannelEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class HypertvDatabase : RoomDatabase() {
@@ -104,6 +104,17 @@ abstract class HypertvDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS `epg_channels` (`id` TEXT NOT NULL, " +
                         "`displayName` TEXT NOT NULL, `icon` TEXT, PRIMARY KEY(`id`))",
                 )
+            }
+        }
+
+        /**
+         * v4 → v5：
+         * - channels 加 epgMatchSource 列（EPG 匹配来源：manual/rule/level1~level5），
+         *   可空列默认 NULL = 未匹配。存量频道来源为 null 不追溯，后续刷新补写。
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `channels` ADD COLUMN `epgMatchSource` TEXT")
             }
         }
     }

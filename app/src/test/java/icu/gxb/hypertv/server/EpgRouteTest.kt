@@ -490,6 +490,10 @@ class EpgRouteTest {
         assertEquals("cctv1.example", store.channels.first { it.id == "ch-1" }.epgId)
         assertEquals("cctv1.example", store.channels.first { it.id == "ch-2" }.epgId)
         assertNull(store.channels.first { it.id == "ch-3" }.epgId)
+        // 规则应用写来源 rule（v5）
+        assertEquals("rule", store.channels.first { it.id == "ch-1" }.epgMatchSource)
+        assertEquals("rule", store.channels.first { it.id == "ch-2" }.epgMatchSource)
+        assertNull(store.channels.first { it.id == "ch-3" }.epgMatchSource)
     }
 
     // ---- GET /api/epg/channels ----

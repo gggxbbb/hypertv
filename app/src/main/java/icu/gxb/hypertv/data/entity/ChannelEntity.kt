@@ -44,6 +44,12 @@ data class ChannelEntity(
      * 都不得覆盖；false = 自动匹配（三级/规则），可被刷新更新。
      */
     val epgManual: Boolean = false,
+    /**
+     * epgId 的来源（v5）：null = 未匹配；"manual" = 手动绑定；
+     * "rule" = 规则命中；"level1"~"level5" = 自动匹配级别。
+     * WebUI 频道详情卡片据此展示匹配来源。
+     */
+    val epgMatchSource: String? = null,
     val catchup: String?,
     val catchupDays: Int?,
     val catchupSource: String?,

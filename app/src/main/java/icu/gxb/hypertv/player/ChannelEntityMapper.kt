@@ -18,4 +18,5 @@ internal fun ChannelEntity.toChannel(number: Int): Channel = Channel(
     orderIndex = orderIndex,
     number = number,
     epgId = epgId,
+    epgMatchSource = epgMatchSource,
 )

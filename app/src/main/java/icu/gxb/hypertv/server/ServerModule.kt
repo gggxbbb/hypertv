@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.GroupEntity
+import icu.gxb.hypertv.epg.EpgMatchSource
 import icu.gxb.hypertv.epg.EpgRefreshService
 import icu.gxb.hypertv.epg.EpgStore
 import icu.gxb.hypertv.epg.MatchRuleManager
@@ -261,6 +262,12 @@ fun Application.hypertvModule(
                     body.epgId == UpdateChannelRequest.EPG_ID_UNSET -> existing.epgManual
                     epgIdCleared -> false
                     else -> true
+                },
+                // 匹配来源（v5）与手动绑定联动：缺省不修改；清除绑定置 null；绑定写 manual
+                epgMatchSource = when {
+                    body.epgId == UpdateChannelRequest.EPG_ID_UNSET -> existing.epgMatchSource
+                    epgIdCleared -> null
+                    else -> EpgMatchSource.MANUAL
                 },
             )
             managementStore.updateChannel(updated)

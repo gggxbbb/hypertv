@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
 import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
@@ -22,8 +23,8 @@ class HypertvEpgStore(
 
     override suspend fun groupByName(name: String): GroupEntity? = repository.groupByNameOnce(name)
 
-    override suspend fun updateChannelEpgIds(updates: List<Pair<String, String>>) =
-        repository.updateChannelEpgIds(updates)
+    override suspend fun updateChannelEpgMatches(updates: List<ChannelEpgMatchUpdate>) =
+        repository.updateChannelEpgMatches(updates)
 
     override suspend fun updateGroupEpgUrl(groupName: String, url: String?) =
         repository.updateGroupEpgUrl(groupName, url)

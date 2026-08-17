@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.ChannelEpgMatchUpdate
 import icu.gxb.hypertv.data.entity.EpgChannelEntity
 import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
@@ -85,11 +86,13 @@ class FakeEpgStore : EpgStore {
 
     override suspend fun groupByName(name: String): GroupEntity? = groups.firstOrNull { it.name == name }
 
-    override suspend fun updateChannelEpgIds(updates: List<Pair<String, String>>) {
-        epgIdWrites += updates
-        updates.forEach { (id, epgId) ->
-            val idx = channels.indexOfFirst { it.id == id }
-            if (idx >= 0) channels[idx] = channels[idx].copy(epgId = epgId)
+    override suspend fun updateChannelEpgMatches(updates: List<ChannelEpgMatchUpdate>) {
+        epgIdWrites += updates.map { it.channelId to it.epgId }
+        updates.forEach { update ->
+            val idx = channels.indexOfFirst { it.id == update.channelId }
+            if (idx >= 0) {
+                channels[idx] = channels[idx].copy(epgId = update.epgId, epgMatchSource = update.source)
+            }
         }
     }
 

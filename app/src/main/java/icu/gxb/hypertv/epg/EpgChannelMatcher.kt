@@ -3,7 +3,7 @@ package icu.gxb.hypertv.epg
 import icu.gxb.hypertv.data.entity.ChannelEntity
 import java.util.Locale
 
-/** 匹配级别（数值越小优先级越高，spec「EPG 匹配三级策略」+ v4 前缀匹配）。 */
+/** 匹配级别（数值越小优先级越高，spec「EPG 匹配三级策略」+ v4 前缀匹配 + v5 包含匹配）。 */
 enum class EpgMatchLevel(val priority: Int) {
     /** 1. tvg-id 精确匹配（XMLTV id == 频道 epgId） */
     EXACT_TVG_ID(1),
@@ -20,6 +20,14 @@ enum class EpgMatchLevel(val priority: Int) {
      * 多个前缀候选命中时取 display-name 更长者。
      */
     NORMALIZED_PREFIX(4),
+
+    /**
+     * 5. 频道名归一化包含匹配：本地频道名归一化后包含 XMLTV display-name 归一化结果
+     * （子串，任意位置，如 `CCTV-风云剧场` → `风云剧场`）。仅在前四级未命中时生效；
+     * 候选归一化长度须 >= [EpgChannelMatcher.CONTAINS_MIN_LENGTH]（防 "tv"/"卫视"/"cctv"
+     * 等短通用名误配），多个包含命中时取 display-name 更长者。
+     */
+    NORMALIZED_CONTAINS(5),
 }
 
 /** 匹配统计：总频道数、匹配数与各级命中数（供 WebUI 展示命中率）。 */
@@ -30,11 +38,21 @@ data class EpgMatchStats(
     val level2: Int,
     val level3: Int,
     val level4: Int = 0,
+    val level5: Int = 0,
 ) {
     val unmatched: Int get() = total - matched
 
     /** 命中率（0~1），无频道时为 1。 */
     val rate: Double get() = if (total == 0) 1.0 else matched.toDouble() / total
+}
+
+/** epgMatchSource 列取值（v5）：手动绑定 / 规则命中 / 自动匹配级别。 */
+object EpgMatchSource {
+    const val MANUAL = "manual"
+    const val RULE = "rule"
+
+    /** 自动匹配级别来源（"level1"~"level5"），与 [EpgMatchLevel] 的 priority 对应。 */
+    fun level(level: EpgMatchLevel): String = "level${level.priority}"
 }
 
 /** 匹配结果：channelId → xmltvId 映射 + 各级别明细 + 统计。 */
@@ -68,19 +86,25 @@ object MatchRuleType {
 }
 
 /**
- * 三级匹配器升级为四级（纯函数，JVM 可单测）。
+ * 三级匹配器升级为五级（纯函数，JVM 可单测）。
  *
- * 规则（spec「EPG 匹配」+ v4 前缀匹配）：
+ * 规则（spec「EPG 匹配」+ v4 前缀匹配 + v5 包含匹配）：
  * 1. 频道 epgId 与 XMLTV id 精确相等 → 最高优先级
  * 2. 忽略大小写相等 → 次优先
  * 3. 频道名与 XMLTV display-name 归一化后相等 → 次低优先（用于无 tvg-id 或 id 对不上的频道）
- * 4. 频道名归一化后以 display-name 归一化结果开头 → 最低优先：
+ * 4. 频道名归一化后以 display-name 归一化结果开头 → 低优先：
  *    - 前缀后紧跟字符若是汉字/空白/标点（归一化后仅剩汉字）则接受
  *      （如 `CCTV-2 财经` → `CCTV2`，后邻「财」）
  *    - 若紧邻是 ASCII 字母/数字，则剩余部分必须整体由清晰度白名单构成或以其开头
  *      （如 `4k`/`8k`/`hd`/`uhd`/`超清`/`高清`/`超高清`/`标清` 及组合 `4k超高清`），
  *      否则拒绝（防 `CCTV-1` 误配 `CCTV-10/11/12/13`）
  *    - 多个前缀候选命中同一频道时取 display-name 更长者（如 `cctv4k` 优先于 `cctv4`）
+ * 5. 频道名归一化包含 display-name 归一化结果（子串，任意位置）→ 最低优先：
+ *    - 长度阈值：候选归一化长度 >= 4（排除 "tv"/"卫视"/"cctv" 等短通用名；中文 2 字
+ *      台名同样被排除——可接受，用户用规则补）
+ *    - 多个包含候选命中时取 display-name 更长者；同长取源顺序先出现者（稳定排序）
+ *    - 只对前四级未命中的频道生效（前缀命中优先于包含命中：`CCTV-风云剧场` 若 EPG
+ *      同时有 `CCTV` 与 `风云剧场`，level4 先命中 `CCTV`——已知取舍，想绑风云剧场用规则）
  *
  * 不做模糊评分（Levenshtein 等）；未匹配频道不进入映射（EPG 数据不关联）。
  * 多个 XMLTV 候选命中同一频道时取第一个（确定性），同源列表顺序稳定。
@@ -92,9 +116,10 @@ class EpgChannelMatcher {
         val exactByEpgId = HashMap<String, String>()
         val ciByEpgId = HashMap<String, String>()
         val byNormalizedName = HashMap<String, String>()
-        // 归一化 display-name 前缀候选（去重后按长度降序，最长匹配优先）
-        val prefixCandidates = ArrayList<Pair<String, String>>()
-        val seenPrefix = HashSet<String>()
+        // 归一化 display-name 候选（去重后按长度降序，最长匹配优先）；前缀与包含共用，
+        // 包含级额外过滤长度阈值（见 [CONTAINS_MIN_LENGTH]）
+        val candidates = ArrayList<Pair<String, String>>()
+        val seenCandidates = HashSet<String>()
         for (xc in xmltvChannels) {
             if (xc.id.isEmpty()) continue
             exactByEpgId.putIfAbsent(xc.id, xc.id)
@@ -103,10 +128,11 @@ class EpgChannelMatcher {
                 val norm = normalizeName(name)
                 if (norm.isEmpty()) continue
                 byNormalizedName.putIfAbsent(norm, xc.id)
-                if (seenPrefix.add(norm)) prefixCandidates += norm to xc.id
+                if (seenCandidates.add(norm)) candidates += norm to xc.id
             }
         }
-        prefixCandidates.sortByDescending { it.first.length }
+        candidates.sortByDescending { it.first.length }
+        val containsCandidates = candidates.filter { it.first.length >= CONTAINS_MIN_LENGTH }
 
         val mapping = HashMap<String, String>()
         val levels = HashMap<String, EpgMatchLevel>()
@@ -114,9 +140,11 @@ class EpgChannelMatcher {
         var level2 = 0
         var level3 = 0
         var level4 = 0
+        var level5 = 0
 
         for (channel in channels) {
-            val match = matchChannel(channel, exactByEpgId, ciByEpgId, byNormalizedName, prefixCandidates) ?: continue
+            val match = matchChannel(channel, exactByEpgId, ciByEpgId, byNormalizedName, candidates, containsCandidates)
+                ?: continue
             mapping[channel.id] = match.xmltvId
             levels[channel.id] = match.level
             when (match.level) {
@@ -124,6 +152,7 @@ class EpgChannelMatcher {
                 EpgMatchLevel.CASE_INSENSITIVE_TVG_ID -> level2++
                 EpgMatchLevel.NORMALIZED_NAME -> level3++
                 EpgMatchLevel.NORMALIZED_PREFIX -> level4++
+                EpgMatchLevel.NORMALIZED_CONTAINS -> level5++
             }
         }
 
@@ -137,6 +166,7 @@ class EpgChannelMatcher {
                 level2 = level2,
                 level3 = level3,
                 level4 = level4,
+                level5 = level5,
             ),
         )
     }
@@ -147,6 +177,7 @@ class EpgChannelMatcher {
         ciByEpgId: Map<String, String>,
         byNormalizedName: Map<String, String>,
         prefixCandidates: List<Pair<String, String>>,
+        containsCandidates: List<Pair<String, String>>,
     ): Matched? {
         val epgId = channel.epgId?.trim()?.takeIf { it.isNotEmpty() }
         if (epgId != null) {
@@ -164,7 +195,44 @@ class EpgChannelMatcher {
                 return Matched(xmltvId, EpgMatchLevel.NORMALIZED_PREFIX)
             }
         }
+        // 第五级：归一化包含匹配。候选已过滤长度阈值并按长度降序 → 首个命中即最长；
+        // 仅当前四级全部未命中时执行（前缀命中优先于包含命中，见类注释中的取舍）。
+        for ((candidate, xmltvId) in containsCandidates) {
+            if (candidate.length >= norm.length) continue
+            if (!containsAtAcceptableBoundary(norm, candidate)) continue
+            return Matched(xmltvId, EpgMatchLevel.NORMALIZED_CONTAINS)
+        }
         return null
+    }
+
+    /**
+     * 包含匹配的边界检查：候选归一化串在频道名中出现的位置是否可接受。
+     * - 纯 CJK 候选（品牌前缀/中缀场景，如 `CCTV-风云剧场` 内的 `风云剧场`）：任意邻接都接受
+     * - ASCII 候选：
+     *   - 前邻须为非 ASCII 或串首（防 "xstarsports" 之类字母前缀误配 "starsports"）
+     *   - 后邻须为非 ASCII 或串尾；唯一例外是「候选不以数字结尾 + 后邻为纯数字」
+     *     （频道编号后缀，如 `StarSports 1` → `starsports` + "1"）
+     *   - 候选以数字结尾时数字后缀是在续数（防 `cctv1` 在 `cctv10`/`cctv11`/`cctv1x` 内误配，
+     *     与第四级边界检查目的一致）
+     * 遍历候选在频道名中的全部出现位置，任一位置可接受即命中。
+     */
+    private fun containsAtAcceptableBoundary(norm: String, candidate: String): Boolean {
+        var idx = norm.indexOf(candidate)
+        while (idx >= 0) {
+            if (isContainsBoundaryAcceptable(norm, candidate, idx)) return true
+            idx = norm.indexOf(candidate, idx + 1)
+        }
+        return false
+    }
+
+    private fun isContainsBoundaryAcceptable(norm: String, candidate: String, start: Int): Boolean {
+        val before = if (start > 0) norm[start - 1] else null
+        val after = if (start + candidate.length < norm.length) norm[start + candidate.length] else null
+        if (candidate.none { isAsciiLetterOrDigit(it) }) return true
+        if (before != null && isAsciiLetterOrDigit(before)) return false
+        val afterAscii = after != null && isAsciiLetterOrDigit(after)
+        if (!afterAscii) return true
+        return isAsciiDigit(after) && !isAsciiDigit(candidate.last())
     }
 
     /**
@@ -201,12 +269,21 @@ class EpgChannelMatcher {
     private fun isAsciiLetterOrDigit(ch: Char): Boolean =
         ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9'
 
+    private fun isAsciiDigit(ch: Char): Boolean = ch in '0'..'9'
+
     private fun isCjk(ch: Char): Boolean =
         Character.UnicodeScript.of(ch.code) == Character.UnicodeScript.HAN
 
     private data class Matched(val xmltvId: String, val level: EpgMatchLevel)
 
     companion object {
+        /**
+         * 第五级包含匹配的最小候选长度：EPG display-name 归一化长度须 >= 4 才参与包含匹配。
+         * 排除 "tv"/"卫视"/"cctv" 这类短通用名在任意位置子串下的误配；中文 2 字台名
+         * （如「综合」）长度 2 同样被排除——可接受，用户用匹配规则补。
+         */
+        const val CONTAINS_MIN_LENGTH = 4
+
         /**
          * 频道名归一化：全角 → 半角 → 小写 → 仅保留字母与数字（去空白、去标点）。
          * 中文字符保留（isLetterOrDigit 对 CJK 为 true）。
@@ -237,7 +314,8 @@ class EpgChannelMatcher {
  * - 同频道命中多条规则时取第一条（入参顺序，确定性）；一条规则可命中多个频道
  *   （如关键字 "CCTV-1" 命中 CCTV-1 / CCTV-1HD / CCTV-1标清 等多个清晰度源）
  *
- * @return 待写回更新（调用方经 EpgStore.updateChannelEpgIds 落库，epgManual 保持不变）
+ * @return 待写回更新（调用方经 EpgStore.updateChannelEpgMatches 落库，epgManual 保持不变，
+ *   来源写 "rule"）
  */
 fun applyMatchRules(
     channels: List<ChannelEntity>,

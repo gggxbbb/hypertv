@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ApiError(val error: String)
 
-/** 频道对外 DTO（ticket 07 + v3）：频道号 = 排序后列表位置 + 1（动态生成，永远连续无空洞）。 */
+/** 频道对外 DTO（ticket 07 + v3 + v5）：频道号 = 排序后列表位置 + 1（动态生成，永远连续无空洞）。 */
 @Serializable
 data class ChannelDTO(
     val id: String,
@@ -23,6 +23,8 @@ data class ChannelDTO(
     val isFavorite: Boolean,
     val isHidden: Boolean,
     val epgId: String?,
+    /** EPG 匹配来源（v5）：null=未匹配；"manual" | "rule" | "level1"~"level5" */
+    val epgMatchSource: String?,
     val catchup: String?,
 )
 
@@ -40,6 +42,7 @@ fun ChannelEntity.toDto(number: Int): ChannelDTO = ChannelDTO(
     isFavorite = isFavorite,
     isHidden = isHidden,
     epgId = epgId,
+    epgMatchSource = epgMatchSource,
     catchup = catchup,
 )
 

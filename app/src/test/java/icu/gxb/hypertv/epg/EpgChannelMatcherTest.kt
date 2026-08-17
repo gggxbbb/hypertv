@@ -310,4 +310,180 @@ class EpgChannelMatcherTest {
         assertEquals(1, result.stats.matched)
         assertEquals(1, result.stats.unmatched)
     }
+
+    // ---- 第五级：归一化包含匹配（v5）----
+
+    @Test
+    fun `level5 contains match hits when display name is embedded`() {
+        // CCTV-风云剧场 → EPG 风云剧场（本地名有品牌前缀，归一化后子串命中）
+        val xmltv = listOf(xmltvChannel("fengyun", "风云剧场"))
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-风云剧场", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("fengyun", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_CONTAINS, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level5 contains match hits when display name is a middle infix`() {
+        // xxx风云剧场yyy → 风云剧场（中缀，前缀/后缀都有无关字符）
+        val xmltv = listOf(xmltvChannel("fengyun", "风云剧场"))
+        val channels = listOf(channel(id = "ch-1", name = "xxx风云剧场yyy", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("fengyun", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_CONTAINS, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `prefix match takes precedence over contains match`() {
+        // 已知取舍：前缀命中优先于包含命中。EPG 同时有 CCTV 与 风云剧场时，
+        // CCTV-风云剧场 走 level4 命中 CCTV（若想绑风云剧场需用匹配规则）。
+        val xmltv = listOf(
+            xmltvChannel("cctv", "CCTV"),
+            xmltvChannel("fengyun", "风云剧场"),
+        )
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-风云剧场", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("cctv", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_PREFIX, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level5 rejects short generic display names below threshold`() {
+        // CCTV-1 综合：EPG「综合」归一化长度 2 < 4，包含匹配不参与 → 不命中
+        val xmltv = listOf(xmltvChannel("zonghe", "综合"))
+        val channels = listOf(channel(id = "ch-1", name = "CCTV-1 综合", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertFalse(result.mapping.containsKey("ch-1"))
+        assertEquals(0, result.stats.matched)
+        assertEquals(0, result.stats.level5)
+    }
+
+    @Test
+    fun `level5 longest contains candidate wins`() {
+        // 北京影视风云剧场频道：影视风云剧场(6) 与 风云剧场(4) 都包含 → 取更长者
+        val xmltv = listOf(
+            xmltvChannel("short", "风云剧场"),
+            xmltvChannel("long", "影视风云剧场"),
+        )
+        val channels = listOf(channel(id = "ch-1", name = "北京影视风云剧场频道", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("long", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_CONTAINS, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level5 equal length contains candidates take first in source order`() {
+        // 我的风云剧场人生 同时包含 风云剧场(4) 与 剧场人生(4)：均非前缀、同长，
+        // 取源顺序先出现者（候选排序稳定，length 相同时保持 XMLTV 顺序）
+        val xmltv = listOf(
+            xmltvChannel("sheng", "剧场人生"),
+            xmltvChannel("fengyun", "风云剧场"),
+        )
+        val channels = listOf(channel(id = "ch-1", name = "我的风云剧场人生", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("sheng", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_CONTAINS, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level5 english display name matches by contains`() {
+        // StarSports 1 → starsports：前缀边界检查拒绝（后邻数字 1），包含匹配兜底命中
+        val xmltv = listOf(xmltvChannel("ss", "starsports"))
+        val channels = listOf(channel(id = "ch-1", name = "StarSports 1", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("ss", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_CONTAINS, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level5 does not let prefix collision sneak back in via contains`() {
+        // 第四级边界拒绝的防误配在第五级必须同样守住：
+        // - cctv1 在 cctv10 内子串命中（数字续数）→ 拒绝
+        // - cctv1 在 cctv1x 内子串命中（非白名单字母后缀）→ 拒绝
+        // - cctv1 在 cctv11 内子串命中（同型数字）→ 拒绝
+        val xmltv = listOf(xmltvChannel("cctv1", "CCTV1"))
+        val channels = listOf(
+            channel(id = "a", name = "CCTV-10 科教", epgId = null),
+            channel(id = "b", name = "CCTV-1X", epgId = null),
+            channel(id = "c", name = "CCTV-11", epgId = null),
+        )
+
+        val result = matcher.match(xmltv, channels)
+
+        assertFalse(result.mapping.containsKey("a"))
+        assertFalse(result.mapping.containsKey("b"))
+        assertFalse(result.mapping.containsKey("c"))
+        assertEquals(0, result.stats.matched)
+        assertEquals(0, result.stats.level5)
+    }
+
+    @Test
+    fun `level5 accepts digit suffix for letter-ending ascii candidate`() {
+        // 候选以字母结尾 + 频道名后邻纯数字 = 频道编号后缀（如 starsports + 1），接受
+        val xmltv = listOf(xmltvChannel("sc", "sportscity"))
+        val channels = listOf(channel(id = "ch-1", name = "Sportscity 2", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals("sc", result.mapping["ch-1"])
+        assertEquals(EpgMatchLevel.NORMALIZED_CONTAINS, result.levels["ch-1"])
+    }
+
+    @Test
+    fun `level5 only fires after previous four levels fail`() {
+        // 前四级可命中的场景 level5 不参与：
+        // 1) 归一化精确（level3）优先于包含
+        val exactXmltv = listOf(xmltvChannel("exact", "CCTV-风云剧场"))
+        val exactResult = matcher.match(exactXmltv, listOf(channel(id = "a", name = "CCTV-风云剧场", epgId = null)))
+        assertEquals(EpgMatchLevel.NORMALIZED_NAME, exactResult.levels["a"])
+
+        // 2) 前缀（level4）优先于包含：CCTV-2 财经 命中 CCTV2 而非「财经」
+        val prefixXmltv = listOf(
+            xmltvChannel("cctv2", "CCTV2"),
+            xmltvChannel("caijing", "财经"),
+        )
+        val prefixResult = matcher.match(prefixXmltv, listOf(channel(id = "b", name = "CCTV-2 财经", epgId = null)))
+        assertEquals("cctv2", prefixResult.mapping["b"])
+        assertEquals(EpgMatchLevel.NORMALIZED_PREFIX, prefixResult.levels["b"])
+        assertEquals(0, prefixResult.stats.level5)
+    }
+
+    @Test
+    fun `level5 stats are counted separately`() {
+        val xmltv = listOf(xmltvChannel("fengyun", "风云剧场"))
+        val channels = listOf(
+            channel(id = "a", name = "CCTV-风云剧场", epgId = null),
+            channel(id = "b", name = "完全无关", epgId = null),
+        )
+
+        val result = matcher.match(xmltv, channels)
+
+        assertEquals(1, result.stats.level5)
+        assertEquals(1, result.stats.matched)
+        assertEquals(1, result.stats.unmatched)
+    }
+
+    @Test
+    fun `level5 does not match when display name longer than channel name`() {
+        val xmltv = listOf(xmltvChannel("long", "风云剧场精品台"))
+        val channels = listOf(channel(id = "ch-1", name = "风云剧场", epgId = null))
+
+        val result = matcher.match(xmltv, channels)
+
+        assertFalse(result.mapping.containsKey("ch-1"))
+    }
 }
