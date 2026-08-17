@@ -36,6 +36,29 @@ data class EpgMatchResult(
     val stats: EpgMatchStats,
 )
 
+/** EPG 频道关键字匹配规则（纯模型，无自增 id；数据库实体见 EpgMatchRuleEntity）。 */
+data class MatchRule(
+    val epgChannelId: String,
+    val keyword: String,
+    /** "prefix" = 频道名以 keyword 开头；"contains" = 频道名包含 keyword */
+    val ruleType: String,
+)
+
+/** 规则应用结果：待写回的 (channelId, epgId) 列表 + 每条规则命中频道数（与入参 rules 同序）。 */
+data class MatchRuleApplicationResult(
+    val updates: List<Pair<String, String>>,
+    val hits: List<Int>,
+) {
+    /** 实际命中（产生更新）的频道数 */
+    val appliedCount: Int get() = updates.size
+}
+
+/** 规则类型常量（与数据库存值一致）。 */
+object MatchRuleType {
+    const val PREFIX = "prefix"
+    const val CONTAINS = "contains"
+}
+
 /**
  * 三级频道匹配器（纯函数，JVM 可单测）。
  *
@@ -123,4 +146,43 @@ class EpgChannelMatcher {
             }
         }
     }
+}
+
+/**
+ * 应用关键字匹配规则（纯函数，JVM 可单测）。
+ *
+ * - 只处理 **epgId 为 null 且 epgManual=false** 的频道：已有 epgId（三级自动匹配过）
+ *   与手动绑定的频道一律不碰
+ * - 频道名与关键字按大小写不敏感比较（全小写）；prefix = 以 keyword 开头，
+ *   contains = 包含 keyword
+ * - 同频道命中多条规则时取第一条（入参顺序，确定性）；一条规则可命中多个频道
+ *   （如关键字 "CCTV-1" 命中 CCTV-1 / CCTV-1HD / CCTV-1标清 等多个清晰度源）
+ *
+ * @return 待写回更新（调用方经 EpgStore.updateChannelEpgIds 落库，epgManual 保持不变）
+ */
+fun applyMatchRules(
+    channels: List<ChannelEntity>,
+    rules: List<MatchRule>,
+): MatchRuleApplicationResult {
+    if (rules.isEmpty()) return MatchRuleApplicationResult(emptyList(), List(rules.size) { 0 })
+    val hits = IntArray(rules.size)
+    val updates = ArrayList<Pair<String, String>>()
+    for (channel in channels) {
+        val hasEpgId = channel.epgId?.trim()?.isNotEmpty() == true
+        if (hasEpgId || channel.epgManual) continue
+        val ruleIndex = rules.indexOfFirst { rule ->
+            val keyword = rule.keyword.trim().lowercase(Locale.ROOT)
+            if (keyword.isEmpty()) return@indexOfFirst false
+            val name = channel.name.lowercase(Locale.ROOT)
+            when (rule.ruleType) {
+                MatchRuleType.PREFIX -> name.startsWith(keyword)
+                MatchRuleType.CONTAINS -> name.contains(keyword)
+                else -> false
+            }
+        }
+        if (ruleIndex < 0) continue
+        hits[ruleIndex]++
+        updates += channel.id to rules[ruleIndex].epgChannelId.trim()
+    }
+    return MatchRuleApplicationResult(updates = updates, hits = hits.toList())
 }

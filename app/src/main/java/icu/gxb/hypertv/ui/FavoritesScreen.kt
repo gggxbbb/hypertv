@@ -69,7 +69,7 @@ internal fun FavoritesScreen(
                 itemsIndexed(favorites, key = { _, ch -> ch.id }) { _, channel ->
                     ChannelRow(
                         channel = channel,
-                        channelNumber = channel.orderIndex + 1,
+                        channelNumber = channel.number,
                         isFocused = channel.id == focusedChannelId,
                         isCurrent = channel.id == currentChannelId,
                     )

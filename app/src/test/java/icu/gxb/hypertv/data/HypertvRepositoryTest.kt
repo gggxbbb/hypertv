@@ -44,6 +44,8 @@ class HypertvRepositoryTest {
             playlistSourceDao = db.playlistSourceDao(),
             epgProgramDao = db.epgProgramDao(),
             appConfigDao = db.appConfigDao(),
+            epgSourceDao = db.epgSourceDao(),
+            epgMatchRuleDao = db.epgMatchRuleDao(),
         )
     }
 

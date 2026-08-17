@@ -59,4 +59,8 @@ interface EpgProgramDao {
     /** 清理已全部结束的过期节目（endTime < 阈值） */
     @Query("DELETE FROM epg_programs WHERE endTime < :threshold")
     suspend fun deleteExpired(threshold: Long)
+
+    /** 聚合去重的 EPG 频道 id 列表（GET /api/epg/channels 用，按 id 升序） */
+    @Query("SELECT DISTINCT channelEpgId FROM epg_programs ORDER BY channelEpgId ASC")
+    suspend fun getDistinctChannelEpgIds(): List<String>
 }

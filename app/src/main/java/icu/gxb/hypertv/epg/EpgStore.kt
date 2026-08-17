@@ -1,7 +1,9 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
+import icu.gxb.hypertv.data.entity.EpgSourceEntity
 import icu.gxb.hypertv.data.entity.GroupEntity
 
 /**
@@ -30,11 +32,41 @@ interface EpgStore {
     /** 设置分组级 EPG 源（url 为 null 表示清除覆盖，回退全局源） */
     suspend fun updateGroupEpgUrl(groupName: String, url: String?)
 
-    /** 全局 EPG 源 URL（未配置/已清除返回 null 或空串） */
-    suspend fun getGlobalSourceUrl(): String?
+    // ---- 全局 EPG 源（v3 多源）----
 
-    /** 写入全局 EPG 源 URL（空串表示清除） */
-    suspend fun setGlobalSourceUrl(url: String)
+    /** 全部全局 EPG 源（按 orderIndex 升序） */
+    suspend fun epgSources(): List<EpgSourceEntity>
+
+    /** 启用中的全局 EPG 源（刷新时按 orderIndex 顺序拉取） */
+    suspend fun epgEnabledSources(): List<EpgSourceEntity>
+
+    /** 按 id 读取全局源（不存在返回 null） */
+    suspend fun epgSourceById(id: Long): EpgSourceEntity?
+
+    /** 新增全局源（追加到末尾，启用），返回含 id 的实体 */
+    suspend fun addEpgSource(url: String): EpgSourceEntity
+
+    /** 覆盖式更新全局源（url/enabled） */
+    suspend fun updateEpgSource(source: EpgSourceEntity)
+
+    /** 删除全局源 */
+    suspend fun deleteEpgSource(id: Long)
+
+    /** 清空现有全局源并设为给定源（旧 PUT /api/epg/source 单源设置兼容） */
+    suspend fun replaceEpgSources(urls: List<String>)
+
+    // ---- 匹配规则（v3 手动匹配）----
+
+    /** 全部匹配规则（按 id 升序） */
+    suspend fun matchRules(): List<EpgMatchRuleEntity>
+
+    /** 新增匹配规则，返回含 id 的实体 */
+    suspend fun addMatchRule(rule: EpgMatchRuleEntity): EpgMatchRuleEntity
+
+    /** 删除匹配规则 */
+    suspend fun deleteMatchRule(id: Long)
+
+    // ---- 节目 ----
 
     /** 上次成功刷新时间（app_config epg_last_update；从未刷新返回 null） */
     suspend fun getLastUpdate(): Long?
@@ -64,4 +96,7 @@ interface EpgStore {
         start: Long,
         end: Long,
     ): List<EpgProgramEntity>
+
+    /** 聚合去重的 EPG 频道 id 列表（GET /api/epg/channels 用） */
+    suspend fun distinctProgramEpgChannelIds(): List<String>
 }

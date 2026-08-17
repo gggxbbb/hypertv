@@ -39,6 +39,11 @@ class PlaylistImporter(
     private val saveFile: suspend (sourceId: String, bytes: ByteArray) -> String = { _, _ -> "" },
     /** 按保存的路径读取文件字节；文件不存在时应抛出异常（refresh 文件型源用） */
     private val readFile: suspend (path: String) -> ByteArray = { throw PlaylistImportException("该环境不支持读取文件源") },
+    /**
+     * 每次成功落库（URL/文件导入与 refresh）后回调，供 EPG 匹配规则即时应用
+     * （v3：规则在频道导入后由调用方触发，注入规则源见 EpgStore.matchRules）。
+     */
+    private val onImportApplied: suspend () -> Unit = {},
 ) {
 
     /** 解析预览（URL 源，不落库）；若同 URL 源已存在，附带增量预测供冲突提示。 */
@@ -155,6 +160,8 @@ class PlaylistImporter(
         // 分组同步：每次导入（新增/更新/隐藏）都把解析出的分组名落 groups 表，
         // 电视端分组标签与 WebUI 分组管理页都读 groups 表，落库即生效。
         store.upsertGroups(parsed.groups)
+        // EPG 匹配规则即时应用（v3）：导入后由调用方注入的回调触发
+        onImportApplied()
 
         return ImportResult(
             imported = merge.imported,

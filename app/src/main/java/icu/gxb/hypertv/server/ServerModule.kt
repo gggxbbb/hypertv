@@ -3,6 +3,7 @@ package icu.gxb.hypertv.server
 import icu.gxb.hypertv.data.entity.GroupEntity
 import icu.gxb.hypertv.epg.EpgRefreshService
 import icu.gxb.hypertv.epg.EpgStore
+import icu.gxb.hypertv.epg.MatchRuleManager
 import icu.gxb.hypertv.m3u.EncodingDetector
 import icu.gxb.hypertv.m3u.M3uParser
 import icu.gxb.hypertv.net.getLocalIpv4
@@ -71,7 +72,20 @@ fun Application.hypertvModule(
         // 必须在 WebUI catch-all 路由之前注册，保证 /api/epg/* 命中 EPG 路由
         epgModule(epgStore, epgRefresher, epgScope)
     }
-    val importer = PlaylistImporter(m3uParser, encodingDetector, playlistStore, urlFetcher, saveFile, readFile)
+    val importer = PlaylistImporter(
+        parser = m3uParser,
+        encodingDetector = encodingDetector,
+        store = playlistStore,
+        fetchUrl = urlFetcher,
+        saveFile = saveFile,
+        readFile = readFile,
+        // EPG 匹配规则在频道导入后即时应用（v3）；未挂载 EPG 时为空操作
+        onImportApplied = if (epgStore != null) {
+            { MatchRuleManager(epgStore).applyAll() }
+        } else {
+            {}
+        },
+    )
     routing {
         get("/api/status") {
             call.respond(
@@ -202,15 +216,15 @@ fun Application.hypertvModule(
             }
         }
 
-        // ---- 频道管理（ticket 07）----
+        // ---- 频道管理（ticket 07 + v3 动态频道号）----
         get("/api/channels") {
             val includeHidden = call.request.queryParameters["includeHidden"]?.toBooleanStrictOrNull() ?: false
             val channels = managementStore.channels()
             val visible = if (includeHidden) channels else channels.filter { !it.isHidden }
-            call.respond(HttpStatusCode.OK, visible.map { it.toDto() })
+            call.respond(HttpStatusCode.OK, visible.mapIndexed { index, ch -> ch.toDto(index + 1) })
         }
         get("/api/channels/favorites") {
-            call.respond(HttpStatusCode.OK, managementStore.favoriteChannels().map { it.toDto() })
+            call.respond(HttpStatusCode.OK, managementStore.favoriteChannels().mapIndexed { index, ch -> ch.toDto(index + 1) })
         }
         put("/api/channels/{id}") {
             val id = call.parameters["id"]
@@ -229,14 +243,28 @@ fun Application.hypertvModule(
                 body.logoUrl.isBlank() -> null
                 else -> body.logoUrl.trim()
             }
+            // EPG 手动绑定：缺省不修改；显式 null/空串 = 清除绑定并复位 epgManual；非空 = 绑定并置 epgManual=true
+            val epgIdCleared = body.epgId != UpdateChannelRequest.EPG_ID_UNSET &&
+                body.epgId?.trim().isNullOrEmpty()
+            val newEpgId = when {
+                body.epgId == UpdateChannelRequest.EPG_ID_UNSET -> existing.epgId
+                body.epgId?.trim().isNullOrEmpty() -> null
+                else -> body.epgId.trim()
+            }
             val updated = existing.copy(
                 name = body.name?.trim()?.takeIf { it.isNotEmpty() } ?: existing.name,
                 groupName = body.groupName?.trim() ?: existing.groupName,
                 logoUrl = logo,
                 isHidden = body.isHidden ?: existing.isHidden,
+                epgId = newEpgId,
+                epgManual = when {
+                    body.epgId == UpdateChannelRequest.EPG_ID_UNSET -> existing.epgManual
+                    epgIdCleared -> false
+                    else -> true
+                },
             )
             managementStore.updateChannel(updated)
-            call.respond(HttpStatusCode.OK, updated.toDto())
+            call.respond(HttpStatusCode.OK, updated.toDto(channelNumber(managementStore, id)))
         }
         delete("/api/channels/{id}") {
             val id = call.parameters["id"]
@@ -401,6 +429,12 @@ private fun contentTypeOf(path: String): ContentType {
 
 private suspend fun countOfChannels(store: ChannelManagementStore, groupName: String): Int =
     store.channels().count { it.groupName == groupName }
+
+/** 频道号 = 该频道在全局排序列表中的位置 + 1（动态编号，不依赖 orderIndex 连续性）。 */
+private suspend fun channelNumber(store: ChannelManagementStore, channelId: String): Int {
+    val index = store.channels().indexOfFirst { it.id == channelId }
+    return if (index >= 0) index + 1 else 0
+}
 
 /** 解析 JSON 请求体；格式错误时返回 400 并返回 null（调用方应就此返回）。 */
 private suspend inline fun <reified T> ApplicationCall.receiveBody(): T? {

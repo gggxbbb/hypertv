@@ -2,11 +2,15 @@ package icu.gxb.hypertv.data.repository
 
 import icu.gxb.hypertv.data.dao.AppConfigDao
 import icu.gxb.hypertv.data.dao.ChannelDao
+import icu.gxb.hypertv.data.dao.EpgMatchRuleDao
 import icu.gxb.hypertv.data.dao.EpgProgramDao
+import icu.gxb.hypertv.data.dao.EpgSourceDao
 import icu.gxb.hypertv.data.dao.GroupDao
 import icu.gxb.hypertv.data.dao.PlaylistSourceDao
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
+import icu.gxb.hypertv.data.entity.EpgSourceEntity
 import icu.gxb.hypertv.data.entity.GroupEntity
 import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +28,8 @@ class HypertvRepository(
     private val playlistSourceDao: PlaylistSourceDao,
     private val epgProgramDao: EpgProgramDao,
     private val appConfigDao: AppConfigDao,
+    private val epgSourceDao: EpgSourceDao,
+    private val epgMatchRuleDao: EpgMatchRuleDao,
 ) {
 
     // ---- 频道 ----
@@ -160,4 +166,59 @@ class HypertvRepository(
     suspend fun getConfig(key: String): String? = appConfigDao.get(key)
 
     suspend fun putConfig(key: String, value: String) = appConfigDao.put(key, value)
+
+    // ---- 全局 EPG 源（v3 多源）----
+
+    /** 全部全局 EPG 源（按 orderIndex 升序） */
+    val epgSources: Flow<List<EpgSourceEntity>> = epgSourceDao.getAll()
+
+    /** 一次性（非 Flow）读取全部全局 EPG 源 */
+    suspend fun epgSourcesOnce(): List<EpgSourceEntity> = epgSourceDao.getAllOnce()
+
+    /** 一次性读取启用中的全局源（刷新时按 orderIndex 顺序拉取） */
+    suspend fun epgEnabledSourcesOnce(): List<EpgSourceEntity> = epgSourceDao.getEnabledOnce()
+
+    suspend fun epgSourceById(id: Long): EpgSourceEntity? = epgSourceDao.getById(id)
+
+    /** 新增全局源（追加到末尾，启用） */
+    suspend fun addEpgSource(url: String): EpgSourceEntity {
+        val orderIndex = (epgSourceDao.getAllOnce().maxOfOrNull { it.orderIndex } ?: -1) + 1
+        val source = EpgSourceEntity(url = url, enabled = true, orderIndex = orderIndex)
+        val id = epgSourceDao.upsert(source)
+        return source.copy(id = id)
+    }
+
+    suspend fun updateEpgSource(source: EpgSourceEntity) = epgSourceDao.upsert(source)
+
+    suspend fun deleteEpgSource(id: Long) = epgSourceDao.deleteById(id)
+
+    /** 清空现有全局源并设为给定源（旧 PUT /api/epg/source 单源设置兼容） */
+    suspend fun replaceEpgSources(urls: List<String>) {
+        epgSourceDao.replaceAll(
+            urls.mapIndexed { index, url ->
+                EpgSourceEntity(url = url, enabled = true, orderIndex = index)
+            },
+        )
+    }
+
+    // ---- EPG 匹配规则（v3）----
+
+    /** 全部匹配规则（按 id 升序） */
+    val epgMatchRules: Flow<List<EpgMatchRuleEntity>> = epgMatchRuleDao.getAll()
+
+    /** 一次性（非 Flow）读取全部匹配规则 */
+    suspend fun epgMatchRulesOnce(): List<EpgMatchRuleEntity> = epgMatchRuleDao.getAllOnce()
+
+    suspend fun epgMatchRuleById(id: Long): EpgMatchRuleEntity? = epgMatchRuleDao.getById(id)
+
+    /** 新增匹配规则，返回新规则（含自增 id） */
+    suspend fun addEpgMatchRule(rule: EpgMatchRuleEntity): EpgMatchRuleEntity {
+        val id = epgMatchRuleDao.upsert(rule)
+        return rule.copy(id = id)
+    }
+
+    suspend fun deleteEpgMatchRule(id: Long) = epgMatchRuleDao.deleteById(id)
+
+    /** 聚合去重的 EPG 频道 id（供规则页候选列表） */
+    suspend fun distinctProgramEpgChannelIds(): List<String> = epgProgramDao.getDistinctChannelEpgIds()
 }

@@ -1,5 +1,6 @@
 package icu.gxb.hypertv.epg
 
+import icu.gxb.hypertv.data.entity.ChannelEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
 import icu.gxb.hypertv.m3u.EncodingDetector
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,8 @@ data class EpgRefreshResult(
     val stats: EpgMatchStats,
     /** 实际写入的节目条数 */
     val programsWritten: Int,
+    /** 多源刷新时单源失败的警告（部分源失败仍成功，全部失败则抛异常） */
+    val warnings: List<String> = emptyList(),
 )
 
 /** 刷新状态视图（内存快照，GET /api/epg/source 附带返回）。 */
@@ -75,13 +78,18 @@ class EpgRefreshStatus {
 }
 
 /**
- * EPG 刷新服务：拉取 XMLTV → 编码识别 → 流式解析 → 三级匹配 → 事务写库 →
- * 回写频道 epgId → 清理过期 → 更新 epg_last_update（ADR-0005）。
+ * EPG 刷新服务（v3 多源）：逐个拉取启用源 → 编码识别 → 流式解析 → 合并节目 →
+ * 三级匹配 → 事务写库 → 回写频道 epgId（跳过 epgManual）→ 应用匹配规则 →
+ * 清理过期 → 更新 epg_last_update（ADR-0005）。
  *
  * - 频道与节目通过「channelEpgId == 频道 epgId（回写后的 XMLTV id）」关联，
  *   查询（now/guide）直接按频道 epgId 走 (channelEpgId, startTime) 复合索引
+ * - **多源合并**：全局刷新拉取 epg_sources 中全部 enabled 源（按 orderIndex 顺序）；
+ *   各源 XMLTV 频道并集（同 id 首个源保留），节目按 (channelEpgId, startTime) 去重、
+ *   后拉取源覆盖（简单一致方案）。单源失败记录警告并继续后续源，全部失败才报错
  * - 全局刷新只匹配「分组未配置独立源」的频道（分组级源覆盖全局源）
- * - 分组刷新只匹配该分组频道，源为其独立源，未配置则回退全局源
+ * - 分组刷新只匹配该分组频道，源为其独立源，未配置则回退全部启用全局源
+ * - 手动绑定（epgManual=true）的频道 epgId 在回写与规则应用时一律跳过
  * - 写库为批量 upsert（一次事务），先按旧 epgId 清该作用域旧数据再写入
  */
 class EpgRefresher(
@@ -97,40 +105,43 @@ class EpgRefresher(
     /** 启动过期即刷阈值（ADR-0005）：距上次成功刷新超过 12h 触发。 */
     val staleThresholdMillis: Long = STALE_THRESHOLD_MILLIS
 
-    /** 刷新全局 EPG 源（作用域 = 未配置独立分组源的全部频道）。 */
+    /** 刷新全局 EPG 源（作用域 = 未配置独立分组源的全部频道；多源拉取合并）。 */
     override suspend fun refreshGlobal(): EpgRefreshResult {
-        val url = store.getGlobalSourceUrl()?.trim().orEmpty()
-        if (url.isEmpty()) throw EpgException("未配置全局 EPG 源")
+        val urls = store.epgEnabledSources().map { it.url.trim() }.filter { it.isNotEmpty() }
+        if (urls.isEmpty()) throw EpgException("未配置启用的全局 EPG 源")
         val overriddenGroups = store.groups()
             .asSequence()
             .filter { !it.epgUrl.isNullOrBlank() }
             .map { it.name }
             .toHashSet()
         val channels = store.channels().filter { it.groupName !in overriddenGroups }
-        return runRefresh(scope = "global", url = url, channels = channels)
+        return runRefresh(scope = "global", urls = urls, channels = channels)
     }
 
-    /** 刷新分组级 EPG 源（未配置独立源时回退全局源；作用域 = 该分组频道）。 */
+    /** 刷新分组级 EPG 源（未配置独立源时回退全部启用全局源；作用域 = 该分组频道）。 */
     override suspend fun refreshGroup(groupName: String): EpgRefreshResult {
         val group = store.groupByName(groupName) ?: throw EpgException("分组不存在：$groupName")
-        val url = group.epgUrl?.trim().orEmpty().ifEmpty { store.getGlobalSourceUrl()?.trim().orEmpty() }
-        if (url.isEmpty()) throw EpgException("分组「$groupName」未配置 EPG 源，全局源也未设置")
+        val ownUrl = group.epgUrl?.trim().orEmpty()
+        val urls = if (ownUrl.isNotEmpty()) {
+            listOf(ownUrl)
+        } else {
+            store.epgEnabledSources().map { it.url.trim() }.filter { it.isNotEmpty() }
+        }
+        if (urls.isEmpty()) throw EpgException("分组「$groupName」未配置 EPG 源，全局源也未设置")
         val channels = store.channels().filter { it.groupName == groupName }
-        return runRefresh(scope = "group:$groupName", url = url, channels = channels)
+        return runRefresh(scope = "group:$groupName", urls = urls, channels = channels)
     }
 
     private suspend fun runRefresh(
         scope: String,
-        url: String,
-        channels: List<icu.gxb.hypertv.data.entity.ChannelEntity>,
+        urls: List<String>,
+        channels: List<ChannelEntity>,
     ): EpgRefreshResult {
         if (channels.isEmpty()) throw EpgException("作用域 $scope 内没有可匹配的频道")
         status.markRunning(scope, now())
         return try {
             withContext(Dispatchers.IO) {
-                val bytes = fetcher(url)
-                val text = encodingDetector.decode(bytes)
-                val parsed = parser.parse(text)
+                val (parsed, warnings) = fetchAndMerge(urls)
                 val match = matcher.match(parsed.channels, channels)
 
                 // 先清该作用域旧数据（按频道当前 epgId），再批量写入新节目
@@ -143,19 +154,27 @@ class EpgRefresher(
                     .map { it.toEntity() }
                 if (entities.isNotEmpty()) store.upsertPrograms(entities)
 
-                // 回写频道 epgId（比对内存中的当前值，只更新变化的）
-                val updates = channels.mapNotNull { ch ->
-                    val xmltvId = match.mapping[ch.id]
-                    if (xmltvId != null && ch.epgId != xmltvId) ch.id to xmltvId else null
+                // 回写频道 epgId：epgManual=true 的频道跳过（手动绑定不被覆盖）；
+                // 规则命中优先于三级自动匹配（同一频道规则值覆盖自动匹配值）
+                val merged = LinkedHashMap<String, String>()
+                channels.forEach { ch ->
+                    if (ch.epgManual) return@forEach
+                    val auto = match.mapping[ch.id]
+                    if (auto != null && ch.epgId != auto) merged[ch.id] = auto
                 }
-                if (updates.isNotEmpty()) store.updateChannelEpgIds(updates)
+                val rules = store.matchRules()
+                if (rules.isNotEmpty()) {
+                    val ruleResult = applyMatchRules(channels, rules.map { MatchRule(it.epgChannelId, it.keyword, it.ruleType) })
+                    for ((id, epgId) in ruleResult.updates) merged[id] = epgId
+                }
+                if (merged.isNotEmpty()) store.updateChannelEpgIds(merged.toList())
 
                 store.deleteExpiredPrograms(now())
                 store.setLastUpdate(now())
 
                 val finishedAt = now()
                 status.markSuccess(finishedAt, match.stats)
-                EpgRefreshResult(scope = scope, stats = match.stats, programsWritten = entities.size)
+                EpgRefreshResult(scope = scope, stats = match.stats, programsWritten = entities.size, warnings = warnings)
             }
         } catch (e: Exception) {
             status.markError(now(), e.message ?: (e::class.simpleName ?: "刷新失败"))
@@ -164,15 +183,56 @@ class EpgRefresher(
     }
 
     /**
-     * 启动过期即刷（ADR-0005）：距上次成功刷新 >12h 且已配置全局源时自动刷新。
+     * 拉取并解析全部源；单源失败记录警告继续后续源，全部失败抛 [EpgException]。
+     * 返回合并后的解析结果 + 警告列表。
+     */
+    private suspend fun fetchAndMerge(urls: List<String>): Pair<XmltvParseResult, List<String>> {
+        val results = mutableListOf<XmltvParseResult>()
+        val warnings = mutableListOf<String>()
+        for (url in urls) {
+            try {
+                val bytes = fetcher(url)
+                val text = encodingDetector.decode(bytes)
+                results += parser.parse(text)
+            } catch (e: Exception) {
+                warnings += "EPG 源拉取失败：$url（${e.message}）"
+            }
+        }
+        if (results.isEmpty()) {
+            throw EpgException(warnings.lastOrNull() ?: "没有可用的 EPG 源")
+        }
+        return mergeParseResults(results) to warnings
+    }
+
+    /**
+     * 多源解析结果合并：
+     * - XMLTV 频道并集（同 id 首个源保留，匹配索引确定性）
+     * - 节目按 (channelEpgId, startTime) 去重，**后拉取源覆盖**（简单一致方案，
+     *   主键 "$channelId|$startTime" 与实体一致，后源胜出语义稳定）
+     */
+    private fun mergeParseResults(results: List<XmltvParseResult>): XmltvParseResult {
+        val channels = LinkedHashMap<String, EpgChannel>()
+        val programs = LinkedHashMap<String, EpgProgram>()
+        for (result in results) {
+            for (ch in result.channels) {
+                if (ch.id.isNotEmpty()) channels.putIfAbsent(ch.id, ch)
+            }
+            for (p in result.programs) {
+                programs["${p.channelId}|${p.startTime}"] = p
+            }
+        }
+        return XmltvParseResult(channels.values.toList(), programs.values.toList())
+    }
+
+    /**
+     * 启动过期即刷（ADR-0005）：距上次成功刷新 >12h 且已配置启用全局源时自动刷新。
      * 供 App 启动路径在后台协程调用；任何失败静默（状态已记录，WebUI 可见），不阻塞启动。
      */
     suspend override fun refreshIfStale(): Boolean {
         if (status.isRunning()) return false
         val last = store.getLastUpdate()
         if (!shouldAutoRefresh(last, now(), staleThresholdMillis)) return false
-        val url = store.getGlobalSourceUrl()?.trim().orEmpty()
-        if (url.isEmpty()) return false
+        if (store.epgEnabledSources().isEmpty()) return false
         return try {
             refreshGlobal()
             true

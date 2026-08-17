@@ -180,6 +180,96 @@ class ManagementRouteTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    // ---- PUT /api/channels/{id} EPG 手动绑定（v3）----
+
+    @Test
+    fun `update channel with epgId sets manual binding`() = testApplication {
+        val store = FakeChannelManagementStore().apply { seedChannel(makeChannel("a", "CCTV-1", order = 0)) }
+        hypertvApp(store)
+
+        val response = client.put("/api/channels/a") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"epgId":"cctv1.example"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val dto = json.decodeFromString<ChannelDTO>(response.bodyAsText())
+        assertEquals("cctv1.example", dto.epgId)
+        assertEquals("cctv1.example", store.channel("a")?.epgId)
+        assertTrue(store.channel("a")?.epgManual == true)
+    }
+
+    @Test
+    fun `update channel without epgId keeps existing manual binding`() = testApplication {
+        val store = FakeChannelManagementStore().apply {
+            seedChannel(makeChannel("a", "CCTV-1", order = 0).copy(epgId = "cctv1.example", epgManual = true))
+        }
+        hypertvApp(store)
+
+        val response = client.put("/api/channels/a") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"CCTV-1 高清"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("cctv1.example", store.channel("a")?.epgId)
+        assertTrue(store.channel("a")?.epgManual == true)
+    }
+
+    @Test
+    fun `update channel with null epgId clears binding and resets manual flag`() = testApplication {
+        val store = FakeChannelManagementStore().apply {
+            seedChannel(makeChannel("a", "CCTV-1", order = 0).copy(epgId = "cctv1.example", epgManual = true))
+        }
+        hypertvApp(store)
+
+        val response = client.put("/api/channels/a") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"epgId":null}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertNull(store.channel("a")?.epgId)
+        assertTrue(store.channel("a")?.epgManual == false)
+    }
+
+    // ---- 动态频道号（v3）：排序后位置 + 1，删除频道后仍连续 ----
+
+    @Test
+    fun `channels numbers follow sorted position not orderIndex`() = testApplication {
+        val store = FakeChannelManagementStore().apply {
+            // orderIndex 不连续：b 被删除后 a(0) c(2) d(3)
+            seedChannel(makeChannel("a", order = 0))
+            seedChannel(makeChannel("c", order = 2))
+            seedChannel(makeChannel("d", order = 3))
+        }
+        hypertvApp(store)
+
+        val response = client.get("/api/channels")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val list = json.decodeFromString<List<ChannelDTO>>(response.bodyAsText())
+        assertEquals(listOf(1, 2, 3), list.map { it.number })
+        assertEquals(listOf("a", "c", "d"), list.map { it.id })
+    }
+
+    @Test
+    fun `favorites numbers follow sorted position`() = testApplication {
+        val store = FakeChannelManagementStore().apply {
+            seedChannel(makeChannel("a", order = 0, fav = true))
+            seedChannel(makeChannel("b", order = 5, fav = true)) // orderIndex 空洞
+            seedChannel(makeChannel("c", order = 1))
+        }
+        hypertvApp(store)
+
+        val response = client.get("/api/channels/favorites")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val list = json.decodeFromString<List<ChannelDTO>>(response.bodyAsText())
+        assertEquals(listOf("a", "b"), list.map { it.id })
+        assertEquals(listOf(1, 2), list.map { it.number })
+    }
+
     // ---- DELETE /api/channels/{id} ----
 
     @Test

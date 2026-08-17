@@ -1,9 +1,12 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
+import icu.gxb.hypertv.data.entity.EpgSourceEntity
 import icu.gxb.hypertv.data.entity.GroupEntity
 import icu.gxb.hypertv.epg.FakeEpgStore
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -26,8 +29,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EPG API 路由契约测试（ticket 09）：注入内存 [FakeEpgStore] 与
- * [FakeEpgRefreshService]，验证 source 配置、异步刷新、now/guide 的契约与错误语义。
+ * EPG API 路由契约测试（ticket 09 + v3 多源/规则）：注入内存 [FakeEpgStore] 与
+ * [FakeEpgRefreshService]，验证 source 多源 CRUD、规则 CRUD/apply、异步刷新、
+ * now/guide/channels 的契约与错误语义。
  */
 class EpgRouteTest {
 
@@ -74,11 +78,16 @@ class EpgRouteTest {
             category = "综合",
         )
 
-    // ---- PUT /api/epg/source ----
+    private fun source(url: String, id: Long = 1, order: Int = 0, enabled: Boolean = true) =
+        EpgSourceEntity(id = id, url = url, enabled = enabled, orderIndex = order)
+
+    // ---- 旧 PUT /api/epg/source（单源兼容：清空并设为该单个源）----
 
     @Test
-    fun `put global source stores url and returns config`() = testApplication {
-        val store = FakeEpgStore()
+    fun `legacy put global source replaces all sources with single url`() = testApplication {
+        val store = FakeEpgStore().apply {
+            sources += source("http://old.example.com/x.xml")
+        }
         epgApp(store)
 
         val response = client.put("/api/epg/source") {
@@ -88,12 +97,13 @@ class EpgRouteTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         val config = json.decodeFromString<EpgSourceConfigDTO>(response.bodyAsText())
-        assertEquals("http://epg.example.com/global.xml", config.globalUrl)
-        assertEquals("http://epg.example.com/global.xml", store.globalSourceUrl)
+        assertEquals(1, config.sources.size)
+        assertEquals("http://epg.example.com/global.xml", config.sources[0].url)
+        assertEquals(listOf("http://epg.example.com/global.xml"), store.epgSources().map { it.url })
     }
 
     @Test
-    fun `put group source stores group override`() = testApplication {
+    fun `legacy put group source stores group override`() = testApplication {
         val store = FakeEpgStore().apply {
             groups += GroupEntity(name = "体育", orderIndex = 0, isCollapsed = false)
         }
@@ -109,8 +119,10 @@ class EpgRouteTest {
     }
 
     @Test
-    fun `put source with blank url clears global`() = testApplication {
-        val store = FakeEpgStore().apply { globalSourceUrl = "http://old.example.com/x.xml" }
+    fun `legacy put source with blank url clears all global sources`() = testApplication {
+        val store = FakeEpgStore().apply {
+            sources += source("http://old.example.com/x.xml")
+        }
         epgApp(store)
 
         val response = client.put("/api/epg/source") {
@@ -119,11 +131,11 @@ class EpgRouteTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertNull(store.globalSourceUrl?.takeIf { it.isNotBlank() })
+        assertTrue(store.epgSources().isEmpty())
     }
 
     @Test
-    fun `put source for missing group returns 404`() = testApplication {
+    fun `legacy put source for missing group returns 404`() = testApplication {
         epgApp()
 
         val response = client.put("/api/epg/source") {
@@ -139,9 +151,10 @@ class EpgRouteTest {
     // ---- GET /api/epg/source ----
 
     @Test
-    fun `get source returns global groups and status`() = testApplication {
+    fun `get source returns sources groups and status`() = testApplication {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/global.xml"
+            sources += source("http://epg.example.com/global.xml", id = 1)
+            sources += source("http://epg.example.com/extra.xml", id = 2, order = 1)
             groups += GroupEntity(name = "新闻", orderIndex = 0, isCollapsed = false)
             groups += GroupEntity(name = "体育", orderIndex = 1, isCollapsed = false, epgUrl = "http://sports.example.com/x.xml")
         }
@@ -151,19 +164,131 @@ class EpgRouteTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         val config = json.decodeFromString<EpgSourceConfigDTO>(response.bodyAsText())
-        assertEquals("http://epg.example.com/global.xml", config.globalUrl)
-        assertEquals(2, config.groups.size)
-        assertEquals("http://sports.example.com/x.xml", config.groups.first { it.name == "体育" }.epgUrl)
-        assertNull(config.groups.first { it.name == "新闻" }.epgUrl)
+        assertEquals(2, config.sources.size)
+        assertEquals("http://epg.example.com/global.xml", config.sources[0].url)
+        assertEquals(true, config.sources[0].enabled)
+        assertEquals(2, config.groupSources.size)
+        assertEquals("http://sports.example.com/x.xml", config.groupSources.first { it.groupName == "体育" }.url)
+        assertNull(config.groupSources.first { it.groupName == "新闻" }.url)
         assertEquals(false, config.status.running)
         assertNull(config.status.lastUpdate)
+    }
+
+    // ---- POST /api/epg/source ----
+
+    @Test
+    fun `post source appends global source`() = testApplication {
+        val store = FakeEpgStore().apply {
+            sources += source("http://first.example.com/x.xml", id = 1)
+        }
+        epgApp(store)
+
+        val response = client.post("/api/epg/source") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"http://second.example.com/y.xml"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val created = json.decodeFromString<EpgSourceDTO>(response.bodyAsText())
+        assertEquals("http://second.example.com/y.xml", created.url)
+        assertEquals(true, created.enabled)
+        // 追加到末尾，原源保留
+        assertEquals(listOf("http://first.example.com/x.xml", "http://second.example.com/y.xml"), store.epgSources().map { it.url })
+    }
+
+    @Test
+    fun `post source with blank url returns 400`() = testApplication {
+        epgApp()
+
+        val response = client.post("/api/epg/source") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"  "}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    // ---- PUT /api/epg/source/{id} ----
+
+    @Test
+    fun `put source by id updates url and enabled`() = testApplication {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/x.xml", id = 7)
+        }
+        epgApp(store)
+
+        val response = client.put("/api/epg/source/7") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"http://new.example.com/y.xml","enabled":false}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val dto = json.decodeFromString<EpgSourceDTO>(response.bodyAsText())
+        assertEquals("http://new.example.com/y.xml", dto.url)
+        assertEquals(false, dto.enabled)
+        val stored = store.epgSourceById(7)
+        assertEquals("http://new.example.com/y.xml", stored?.url)
+        assertEquals(false, stored?.enabled)
+    }
+
+    @Test
+    fun `put source by id missing returns 404`() = testApplication {
+        epgApp()
+
+        val response = client.put("/api/epg/source/99") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"enabled":false}""")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `put source by id with blank url returns 400`() = testApplication {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/x.xml", id = 7)
+        }
+        epgApp(store)
+
+        val response = client.put("/api/epg/source/7") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"   "}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    // ---- DELETE /api/epg/source/{id} ----
+
+    @Test
+    fun `delete source returns 204 and removes it`() = testApplication {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/x.xml", id = 7)
+        }
+        epgApp(store)
+
+        val response = client.delete("/api/epg/source/7")
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertNull(store.epgSourceById(7))
+    }
+
+    @Test
+    fun `delete source missing returns 404`() = testApplication {
+        epgApp()
+
+        val response = client.delete("/api/epg/source/99")
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
     }
 
     // ---- POST /api/epg/refresh ----
 
     @Test
     fun `post refresh global returns 202 and triggers refresher`() = testApplication {
-        val store = FakeEpgStore().apply { globalSourceUrl = "http://epg.example.com/global.xml" }
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/global.xml")
+        }
         val refresher = FakeEpgRefreshService()
         epgApp(store, refresher)
 
@@ -182,7 +307,7 @@ class EpgRouteTest {
     @Test
     fun `post refresh group returns 202 and triggers group refresh`() = testApplication {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/global.xml"
+            sources += source("http://epg.example.com/global.xml")
             groups += GroupEntity(name = "体育", orderIndex = 0, isCollapsed = false, epgUrl = "http://sports.example.com/x.xml")
         }
         val refresher = FakeEpgRefreshService()
@@ -198,9 +323,9 @@ class EpgRouteTest {
     }
 
     @Test
-    fun `post refresh group falls back to global source when group has none`() = testApplication {
+    fun `post refresh group falls back to global sources when group has none`() = testApplication {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/global.xml"
+            sources += source("http://epg.example.com/global.xml")
             groups += GroupEntity(name = "新闻", orderIndex = 0, isCollapsed = false)
         }
         val refresher = FakeEpgRefreshService()
@@ -241,7 +366,9 @@ class EpgRouteTest {
 
     @Test
     fun `post refresh while running returns 409`() = testApplication {
-        val store = FakeEpgStore().apply { globalSourceUrl = "http://epg.example.com/global.xml" }
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/global.xml")
+        }
         val refresher = FakeEpgRefreshService().apply { forceRunning() }
         epgApp(store, refresher)
 
@@ -252,6 +379,139 @@ class EpgRouteTest {
 
         assertEquals(HttpStatusCode.Conflict, response.status)
         assertEquals(0, refresher.refreshGlobalCalls)
+    }
+
+    // ---- 匹配规则 ----
+
+    @Test
+    fun `get rules returns list with matched counts`() = testApplication {
+        val store = FakeEpgStore().apply {
+            rules += EpgMatchRuleEntity(id = 1, epgChannelId = "cctv1.example", keyword = "CCTV-1", ruleType = "prefix")
+            rules += EpgMatchRuleEntity(id = 2, epgChannelId = "cctv2.example", keyword = "CCTV-2", ruleType = "contains")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+            channels += channel("ch-2", "CCTV-1 HD", epgId = "cctv1.example")
+            channels += channel("ch-3", "无", epgId = null)
+        }
+        epgApp(store)
+
+        val response = client.get("/api/epg/rules")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val list = json.decodeFromString<List<EpgRuleDTO>>(response.bodyAsText())
+        assertEquals(2, list.size)
+        // matchedCount = 当前 epgId == 该 epgChannelId 的频道数
+        assertEquals(2, list.first { it.id == 1L }.matchedCount)
+        assertEquals(0, list.first { it.id == 2L }.matchedCount)
+    }
+
+    @Test
+    fun `post rule creates rule`() = testApplication {
+        val store = FakeEpgStore()
+        epgApp(store)
+
+        val response = client.post("/api/epg/rules") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"epgChannelId":"cctv1.example","keyword":"CCTV-1","ruleType":"prefix"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val dto = json.decodeFromString<EpgRuleDTO>(response.bodyAsText())
+        assertEquals("cctv1.example", dto.epgChannelId)
+        assertEquals("CCTV-1", dto.keyword)
+        assertEquals("prefix", dto.ruleType)
+        assertEquals(1, store.matchRules().size)
+    }
+
+    @Test
+    fun `post rule with invalid ruleType returns 400`() = testApplication {
+        epgApp()
+
+        val response = client.post("/api/epg/rules") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"epgChannelId":"cctv1.example","keyword":"CCTV-1","ruleType":"regex"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `post rule with blank keyword returns 400`() = testApplication {
+        epgApp()
+
+        val response = client.post("/api/epg/rules") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"epgChannelId":"cctv1.example","keyword":"  ","ruleType":"prefix"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `delete rule returns 204 and removes it`() = testApplication {
+        val store = FakeEpgStore().apply {
+            rules += EpgMatchRuleEntity(id = 5, epgChannelId = "cctv1.example", keyword = "CCTV-1", ruleType = "prefix")
+        }
+        epgApp(store)
+
+        val response = client.delete("/api/epg/rules/5")
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertTrue(store.matchRules().isEmpty())
+    }
+
+    @Test
+    fun `delete rule missing returns 404`() = testApplication {
+        epgApp()
+
+        val response = client.delete("/api/epg/rules/99")
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `post rules apply binds matching channels and returns count`() = testApplication {
+        val store = FakeEpgStore().apply {
+            rules += EpgMatchRuleEntity(id = 1, epgChannelId = "cctv1.example", keyword = "CCTV-1", ruleType = "prefix")
+            channels += channel("ch-1", "CCTV-1 综合", epgId = null)
+            channels += channel("ch-2", "CCTV-1 HD", epgId = null)
+            channels += channel("ch-3", "别的台", epgId = null)
+        }
+        epgApp(store)
+
+        val response = client.post("/api/epg/rules/apply") {
+            contentType(ContentType.Application.Json)
+            setBody("{}")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val result = json.decodeFromString<EpgRuleApplyResult>(response.bodyAsText())
+        assertEquals(2, result.applied)
+        assertEquals("cctv1.example", store.channels.first { it.id == "ch-1" }.epgId)
+        assertEquals("cctv1.example", store.channels.first { it.id == "ch-2" }.epgId)
+        assertNull(store.channels.first { it.id == "ch-3" }.epgId)
+    }
+
+    // ---- GET /api/epg/channels ----
+
+    @Test
+    fun `get epg channels returns aggregated ids with sample names`() = testApplication {
+        val store = FakeEpgStore().apply {
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
+            channels += channel("ch-2", "CCTV-1 HD", epgId = "cctv1.example")
+            programs += program("p1", "cctv1.example", 1000, 2000)
+            programs += program("p2", "cctv1.example", 2000, 3000)
+            programs += program("p3", "cctv5.example", 1000, 2000)
+        }
+        epgApp(store)
+
+        val response = client.get("/api/epg/channels")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val list = json.decodeFromString<List<EpgChannelCandidateDTO>>(response.bodyAsText())
+        assertEquals(listOf("cctv1.example", "cctv5.example"), list.map { it.epgId })
+        val cctv1 = list.first { it.epgId == "cctv1.example" }
+        assertEquals(setOf("CCTV-1 综合", "CCTV-1 HD"), cctv1.channelNames.toSet())
+        assertTrue(list.first { it.epgId == "cctv5.example" }.channelNames.isEmpty())
     }
 
     // ---- GET /api/epg/now ----

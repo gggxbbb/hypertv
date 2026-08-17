@@ -9,12 +9,12 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ApiError(val error: String)
 
-/** 频道对外 DTO（ticket 07）：频道号 = 全局 orderIndex + 1。 */
+/** 频道对外 DTO（ticket 07 + v3）：频道号 = 排序后列表位置 + 1（动态生成，永远连续无空洞）。 */
 @Serializable
 data class ChannelDTO(
     val id: String,
     val sourceId: String,
-    /** 频道号（全局排序号，与分组无关） */
+    /** 频道号（排序后索引 + 1，与分组无关，不依赖 orderIndex 连续性） */
     val number: Int,
     val name: String,
     val url: String,
@@ -26,10 +26,13 @@ data class ChannelDTO(
     val catchup: String?,
 )
 
-fun ChannelEntity.toDto(): ChannelDTO = ChannelDTO(
+/**
+ * 频道实体 → DTO；频道号由调用方传入（= 在响应列表中按 orderIndex 排序后的位置 + 1）。
+ */
+fun ChannelEntity.toDto(number: Int): ChannelDTO = ChannelDTO(
     id = id,
     sourceId = sourceId,
-    number = orderIndex + 1,
+    number = number,
     name = name,
     url = url,
     groupName = groupName,
@@ -54,14 +57,25 @@ fun GroupEntity.toDto(channelCount: Int): GroupDTO = GroupDTO(
     channelCount = channelCount,
 )
 
-/** PUT /api/channels/{id} 请求体：仅提交需要修改的字段（局部更新）。 */
+/**
+ * PUT /api/channels/{id} 请求体：仅提交需要修改的字段（局部更新）。
+ *
+ * [epgId]：EPG 手动绑定（v3）。缺省 = 不修改；传 null = 清除绑定（epgManual 复位）；
+ * 传非空 = 绑定并置 epgManual=true（刷新/重导入不再覆盖）。
+ */
 @Serializable
 data class UpdateChannelRequest(
     val name: String? = null,
     val groupName: String? = null,
     val logoUrl: String? = null,
     val isHidden: Boolean? = null,
-)
+    val epgId: String? = EPG_ID_UNSET,
+) {
+    companion object {
+        /** 缺省哨兵：kotlinx.serialization 无法区分「缺省」与「显式 null」，用哨兵区分 */
+        const val EPG_ID_UNSET = "\u0000EPG_ID_UNSET\u0000"
+    }
+}
 
 /** POST /api/channels/{id}/favorite 请求体。 */
 @Serializable

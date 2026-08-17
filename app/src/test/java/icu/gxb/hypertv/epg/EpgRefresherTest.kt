@@ -1,7 +1,9 @@
 package icu.gxb.hypertv.epg
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.EpgMatchRuleEntity
 import icu.gxb.hypertv.data.entity.EpgProgramEntity
+import icu.gxb.hypertv.data.entity.EpgSourceEntity
 import icu.gxb.hypertv.data.entity.GroupEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -28,21 +30,30 @@ class EpgRefresherTest {
 
     private val nowMillis = 1786924800000L // 2026-08-17T00:00:00Z
 
-    private fun channel(id: String, name: String, epgId: String? = null, groupName: String = "新闻") =
-        ChannelEntity(
-            id = id,
-            sourceId = "src-1",
-            name = name,
-            url = "http://stream.example.com/$id.m3u8",
-            groupName = groupName,
-            logoUrl = null,
-            orderIndex = 0,
-            epgId = epgId,
-            catchup = null,
-            catchupDays = null,
-            catchupSource = null,
-            createdAt = 100L,
-        )
+    private fun channel(
+        id: String,
+        name: String,
+        epgId: String? = null,
+        groupName: String = "新闻",
+        epgManual: Boolean = false,
+    ) = ChannelEntity(
+        id = id,
+        sourceId = "src-1",
+        name = name,
+        url = "http://stream.example.com/$id.m3u8",
+        groupName = groupName,
+        logoUrl = null,
+        orderIndex = 0,
+        epgId = epgId,
+        epgManual = epgManual,
+        catchup = null,
+        catchupDays = null,
+        catchupSource = null,
+        createdAt = 100L,
+    )
+
+    private fun source(url: String, id: Long = 1, order: Int = 0, enabled: Boolean = true) =
+        EpgSourceEntity(id = id, url = url, enabled = enabled, orderIndex = order)
 
     private fun refresher(
         store: FakeEpgStore,
@@ -53,7 +64,7 @@ class EpgRefresherTest {
     @Test
     fun `global refresh parses matches writes and updates last update`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/xmltv.xml"
+            sources += source("http://epg.example.com/xmltv.xml")
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
             // ch-2 无 epgId：靠频道名归一化匹配（三级），刷新后回写 xmltvId
             channels += channel("ch-2", "CCTV-5 体育", epgId = null)
@@ -93,7 +104,7 @@ class EpgRefresherTest {
     @Test
     fun `global refresh clears old programs by current epgIds before writing`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/xmltv.xml"
+            sources += source("http://epg.example.com/xmltv.xml")
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
             // 预置一条旧节目（ch-1 之前匹配到 cctv1.example 的旧数据）
             programs += EpgProgramEntity(
@@ -119,7 +130,7 @@ class EpgRefresherTest {
     @Test
     fun `global refresh respects group overrides`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/xmltv.xml"
+            sources += source("http://epg.example.com/xmltv.xml")
             groups += GroupEntity(name = "体育", orderIndex = 0, isCollapsed = false, epgUrl = "http://sports.example.com/xmltv.xml")
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example", groupName = "新闻")
             channels += channel("ch-5", "CCTV-5 体育", epgId = "cctv5.example", groupName = "体育")
@@ -139,7 +150,7 @@ class EpgRefresherTest {
     @Test
     fun `group refresh uses group source and matches only its channels`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://global.example.com/xmltv.xml"
+            sources += source("http://global.example.com/xmltv.xml")
             groups += GroupEntity(name = "体育", orderIndex = 0, isCollapsed = false, epgUrl = "http://sports.example.com/xmltv.xml")
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example", groupName = "新闻")
             channels += channel("ch-5", "CCTV-5 体育", epgId = "cctv5.example", groupName = "体育")
@@ -160,9 +171,9 @@ class EpgRefresherTest {
     }
 
     @Test
-    fun `group refresh falls back to global source when group has no own source`() = runTest {
+    fun `group refresh falls back to global sources when group has no own source`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://global.example.com/xmltv.xml"
+            sources += source("http://global.example.com/xmltv.xml")
             groups += GroupEntity(name = "新闻", orderIndex = 0, isCollapsed = false)
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example", groupName = "新闻")
         }
@@ -181,7 +192,7 @@ class EpgRefresherTest {
     @Test
     fun `fetch failure marks error and does not write`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/xmltv.xml"
+            sources += source("http://epg.example.com/xmltv.xml")
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
         }
         val refresher = refresher(store, fetcher = { throw EpgException("拉取 EPG 源失败：连接超时") })
@@ -224,10 +235,202 @@ class EpgRefresherTest {
         }
     }
 
+    // ---- v3 多源合并 ----
+
+    private val sourceAXml = """
+        <tv>
+          <channel id="cctv1.example"><display-name>CCTV-1 综合</display-name></channel>
+          <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv1.example">
+            <title>A 源新闻</title>
+          </programme>
+        </tv>
+    """.trimIndent()
+
+    private val sourceBXml = """
+        <tv>
+          <channel id="cctv2.example"><display-name>CCTV-2 财经</display-name></channel>
+          <programme start="20260817003000 +0000" stop="20260817010000 +0000" channel="cctv2.example">
+            <title>B 源财经</title>
+          </programme>
+        </tv>
+    """.trimIndent()
+
+    @Test
+    fun `multi source merge keeps programs from all sources`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://a.example/xmltv.xml", id = 1, order = 0)
+            sources += source("http://b.example/xmltv.xml", id = 2, order = 1)
+            channels += channel("ch-1", "CCTV-1 综合")
+            channels += channel("ch-2", "CCTV-2 财经")
+        }
+        val refresher = refresher(store, fetcher = { url ->
+            when (url) {
+                "http://a.example/xmltv.xml" -> sourceAXml.toByteArray()
+                "http://b.example/xmltv.xml" -> sourceBXml.toByteArray()
+                else -> error("unexpected url: $url")
+            }
+        })
+
+        val result = refresher.refreshGlobal()
+
+        assertEquals(2, result.stats.matched)
+        assertEquals(2, result.programsWritten)
+        assertEquals(2, store.programs.size)
+        assertEquals(
+            setOf("cctv1.example", "cctv2.example"),
+            store.programs.map { it.channelEpgId }.toSet(),
+        )
+        assertTrue(store.programs.any { it.title == "A 源新闻" })
+        assertTrue(store.programs.any { it.title == "B 源财经" })
+    }
+
+    @Test
+    fun `multi source merge later source wins on same channel and start time`() = runTest {
+        val conflictSourceA = """
+            <tv>
+              <channel id="cctv1.example"><display-name>CCTV-1 综合</display-name></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv1.example">
+                <title>旧源节目</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val conflictSourceB = """
+            <tv>
+              <channel id="cctv1.example"><display-name>CCTV-1 综合</display-name></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv1.example">
+                <title>新源节目</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val store = FakeEpgStore().apply {
+            sources += source("http://a.example/xmltv.xml", id = 1, order = 0)
+            sources += source("http://b.example/xmltv.xml", id = 2, order = 1)
+            channels += channel("ch-1", "CCTV-1 综合")
+        }
+        val refresher = refresher(store, fetcher = { url ->
+            when (url) {
+                "http://a.example/xmltv.xml" -> conflictSourceA.toByteArray()
+                "http://b.example/xmltv.xml" -> conflictSourceB.toByteArray()
+                else -> error("unexpected url: $url")
+            }
+        })
+
+        refresher.refreshGlobal()
+
+        // 同 (channelEpgId, startTime)：后拉取源（B）覆盖前源（A）
+        assertEquals(1, store.programs.size)
+        assertEquals("新源节目", store.programs.single().title)
+    }
+
+    @Test
+    fun `multi source merge records warning when one source fails`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://bad.example/xmltv.xml", id = 1, order = 0)
+            sources += source("http://good.example/xmltv.xml", id = 2, order = 1)
+            channels += channel("ch-2", "CCTV-2 财经")
+        }
+        val refresher = refresher(store, fetcher = { url ->
+            when (url) {
+                "http://bad.example/xmltv.xml" -> throw EpgException("连接超时")
+                "http://good.example/xmltv.xml" -> sourceBXml.toByteArray()
+                else -> error("unexpected url: $url")
+            }
+        })
+
+        val result = refresher.refreshGlobal()
+
+        // 单源失败不中断：另一源正常写入，警告被记录，刷新状态为成功
+        assertEquals(1, result.programsWritten)
+        assertEquals(1, store.programs.size)
+        assertEquals("cctv2.example", store.programs.single().channelEpgId)
+        assertEquals(1, result.warnings.size)
+        assertTrue(result.warnings.single().contains("bad.example"))
+        assertNull(refresher.status.snapshot().lastError)
+    }
+
+    @Test
+    fun `multi source refresh fails when all sources fail`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://bad1.example/xmltv.xml", id = 1, order = 0)
+            sources += source("http://bad2.example/xmltv.xml", id = 2, order = 1)
+            channels += channel("ch-1", "CCTV-1 综合")
+        }
+        val refresher = refresher(store, fetcher = { throw EpgException("连接超时") })
+
+        try {
+            refresher.refreshGlobal()
+            fail("应抛出 EpgException")
+        } catch (e: EpgException) {
+            assertTrue(e.message.orEmpty().contains("bad2.example"))
+        }
+        assertTrue(store.programs.isEmpty())
+        assertTrue(refresher.status.snapshot().lastError?.contains("连接超时") == true)
+    }
+
+    @Test
+    fun `refresh skips channels with manual epg binding`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            // 手动绑定 cctv5.example：即使三级匹配到 cctv1.example 也不回写
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv5.example", epgManual = true)
+        }
+        val refresher = refresher(store, fetcher = { xmltvXml.toByteArray() })
+
+        refresher.refreshGlobal()
+
+        // 手动绑定频道不被覆盖
+        assertTrue(store.epgIdWrites.isEmpty())
+        assertEquals("cctv5.example", store.channels.first { it.id == "ch-1" }.epgId)
+        assertTrue(store.channels.first { it.id == "ch-1" }.epgManual)
+    }
+
+    @Test
+    fun `refresh applies match rules and rule wins over auto match`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            // ch-1 无 epgId：三级自动匹配到 cctv1.example，但规则命中优先 → custom.example
+            channels += channel("ch-1", "CCTV-1 综合")
+            rules += EpgMatchRuleEntity(id = 1, epgChannelId = "custom.example", keyword = "CCTV-1", ruleType = "prefix")
+        }
+        val refresher = refresher(store, fetcher = { xmltvXml.toByteArray() })
+
+        refresher.refreshGlobal()
+
+        assertEquals("custom.example", store.channels.first { it.id == "ch-1" }.epgId)
+        assertEquals("custom.example", store.epgIdWrites.single().second)
+        // 规则只覆盖 epgId（epgManual 保持 false），刷新可再次更新
+        assertFalse(store.channels.first { it.id == "ch-1" }.epgManual)
+    }
+
+    @Test
+    fun `refresh rules do not touch channels with existing epgId`() = runTest {
+        // 该源只覆盖 cctv5：ch-1（CCTV-1 综合）不会三级匹配到任何 XMLTV id
+        val onlyCctv5Xml = """
+            <tv>
+              <channel id="cctv5.example"><display-name>CCTV-5 体育</display-name></channel>
+              <programme start="20260817000000 +0000" stop="20260817003000 +0000" channel="cctv5.example">
+                <title>体育新闻</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml")
+            // ch-1 已有 epgId（此前自动匹配过）：规则名命中但 epgId 非空 → 不覆盖
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "existing.example")
+            rules += EpgMatchRuleEntity(id = 1, epgChannelId = "custom.example", keyword = "CCTV-1", ruleType = "prefix")
+        }
+        val refresher = refresher(store, fetcher = { onlyCctv5Xml.toByteArray() })
+
+        refresher.refreshGlobal()
+
+        assertEquals("existing.example", store.channels.first { it.id == "ch-1" }.epgId)
+        assertTrue(store.epgIdWrites.isEmpty())
+    }
+
     @Test
     fun `refreshIfStale refreshes when over threshold`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/xmltv.xml"
+            sources += source("http://epg.example.com/xmltv.xml")
             lastUpdate = nowMillis - 13L * 60 * 60 * 1000 // 13h 前
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
         }
@@ -242,7 +445,7 @@ class EpgRefresherTest {
     @Test
     fun `refreshIfStale skips when fresh`() = runTest {
         val store = FakeEpgStore().apply {
-            globalSourceUrl = "http://epg.example.com/xmltv.xml"
+            sources += source("http://epg.example.com/xmltv.xml")
             lastUpdate = nowMillis - 1L * 60 * 60 * 1000 // 1h 前
             channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
         }
@@ -257,6 +460,18 @@ class EpgRefresherTest {
     fun `refreshIfStale skips when no source configured`() = runTest {
         val store = FakeEpgStore().apply {
             lastUpdate = null // 从未刷新，但也没配置源
+        }
+        val refresher = refresher(store, fetcher = { error("不应拉取") })
+
+        assertFalse(refresher.refreshIfStale())
+    }
+
+    @Test
+    fun `refreshIfStale skips when all sources disabled`() = runTest {
+        val store = FakeEpgStore().apply {
+            sources += source("http://epg.example.com/xmltv.xml", enabled = false)
+            lastUpdate = null
+            channels += channel("ch-1", "CCTV-1 综合", epgId = "cctv1.example")
         }
         val refresher = refresher(store, fetcher = { error("不应拉取") })
 

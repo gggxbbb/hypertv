@@ -39,6 +39,11 @@ data class ChannelEntity(
     val isHidden: Boolean = false,
     /** 用于 EPG 匹配的 tvg-id */
     val epgId: String?,
+    /**
+     * epgId 是否用户手动绑定（v3）。true = WebUI 手动设置，M3U 重导入/EPG 刷新
+     * 都不得覆盖；false = 自动匹配（三级/规则），可被刷新更新。
+     */
+    val epgManual: Boolean = false,
     val catchup: String?,
     val catchupDays: Int?,
     val catchupSource: String?,

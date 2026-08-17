@@ -15,6 +15,11 @@ data class Channel(
     val isFavorite: Boolean = false,
     /** 全局稳定排序位置，频道号 = orderIndex + 1（与分组无关） */
     val orderIndex: Int = 0,
+    /**
+     * 频道号（v3 动态编号）：等于在排序后列表中的位置 + 1，永远连续无空洞，
+     * 不依赖 orderIndex 连续性。由 ChannelSource 在组装列表时按 index 生成。
+     */
+    val number: Int = 0,
     /** EPG 匹配回写后的 channelEpgId（Info 浮层/节目表按它查节目），可能为空 */
     val epgId: String? = null,
 )

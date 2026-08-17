@@ -161,7 +161,7 @@ internal fun EpgGuideScreen(
                         items(visibleChannels, key = { it.id }) { channel ->
                             GuideRow(
                                 channel = channel,
-                                channelNumber = channel.orderIndex + 1,
+                                channelNumber = channel.number,
                                 isFocused = channel.id == channels.getOrNull(guide.focusedRow)?.id,
                                 isCurrent = channel.id == currentChannelId,
                                 programs = guide.programsByChannel[channel.epgId].orEmpty(),

@@ -5,17 +5,38 @@ import icu.gxb.hypertv.epg.EpgMatchStats
 import icu.gxb.hypertv.epg.EpgRefreshStatusView
 import kotlinx.serialization.Serializable
 
-/** PUT /api/epg/source 请求体：url 必填（空串/空白 = 清除）；groupId 省略 = 全局。 */
+/** 旧 PUT /api/epg/source 请求体（v3 保留兼容）：url 必填；groupId 省略 = 全局单源替换。 */
 @Serializable
 data class EpgSourceRequest(
     val url: String,
     val groupId: String? = null,
 )
 
+/** POST /api/epg/source 请求体：追加一个全局源。 */
+@Serializable
+data class EpgSourceCreateRequest(
+    val url: String,
+)
+
+/** PUT /api/epg/source/{id} 请求体：仅提交需要修改的字段（局部更新）。 */
+@Serializable
+data class EpgSourceUpdateRequest(
+    val url: String? = null,
+    val enabled: Boolean? = null,
+)
+
 /** POST /api/epg/refresh 请求体：groupId 省略 = 全局。 */
 @Serializable
 data class EpgRefreshRequest(
     val groupId: String? = null,
+)
+
+/** 全局 EPG 源对外 DTO（sources 从 epg_sources 表读取）。 */
+@Serializable
+data class EpgSourceDTO(
+    val id: Long,
+    val url: String,
+    val enabled: Boolean,
 )
 
 /** 匹配统计对外 DTO（WebUI 命中率展示）。 */
@@ -58,18 +79,50 @@ fun EpgRefreshStatusView.toDto(lastUpdate: Long?): EpgStatusDTO = EpgStatusDTO(
     stats = lastStats?.toDto(),
 )
 
-/** GET /api/epg/source 响应：全局源 + 全部分组（含分组级覆盖）+ 刷新状态。 */
+/** GET /api/epg/source 响应：全局多源 + 分组级源 + 刷新状态。 */
 @Serializable
 data class EpgSourceConfigDTO(
-    val globalUrl: String?,
-    val groups: List<EpgGroupSourceDTO>,
+    val sources: List<EpgSourceDTO>,
+    val groupSources: List<EpgGroupSourceDTO>,
     val status: EpgStatusDTO,
 )
 
+/** 分组级 EPG 源：分组名 + 覆盖的 url（null = 未覆盖，回退全局源）。 */
 @Serializable
 data class EpgGroupSourceDTO(
-    val name: String,
-    val epgUrl: String?,
+    val groupName: String,
+    val url: String?,
+)
+
+/** 匹配规则对外 DTO（matchedCount = 当前 epgId == 该 epgChannelId 的频道数）。 */
+@Serializable
+data class EpgRuleDTO(
+    val id: Long,
+    val epgChannelId: String,
+    val keyword: String,
+    val ruleType: String,
+    val matchedCount: Int,
+)
+
+/** POST /api/epg/rules 请求体。 */
+@Serializable
+data class EpgRuleRequest(
+    val epgChannelId: String,
+    val keyword: String,
+    val ruleType: String,
+)
+
+/** POST /api/epg/rules/apply 响应。 */
+@Serializable
+data class EpgRuleApplyResult(
+    val applied: Int,
+)
+
+/** GET /api/epg/channels 候选列表项：EPG 频道 id + 关联频道名样例。 */
+@Serializable
+data class EpgChannelCandidateDTO(
+    val epgId: String,
+    val channelNames: List<String>,
 )
 
 /** EPG 节目对外 DTO（now/guide 共用）。 */
