@@ -1,6 +1,7 @@
 package icu.gxb.hypertv
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
@@ -44,9 +45,24 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var server: HypertvServer
 
+    /** 重新进入播放页：若上次退出已停止播放，则自动恢复到上次频道（播放中则跳过） */
+    override fun onStart() {
+        super.onStart()
+        playerController.resumeIfIdle()
+    }
+
+    /** 退出播放页即停止播放，避免进程被前台服务保活时后台继续出声 */
+    override fun onDestroy() {
+        playerController.stop()
+        super.onDestroy()
+    }
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 播放页窗口防休眠/屏保（ticket 03 目标③，无需权限）：
+        // 窗口存活期间屏幕保持常亮，Activity 销毁（退出播放页）后自动失效
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             HyperTVTheme {
                 val channels by playerController.channels.collectAsState()

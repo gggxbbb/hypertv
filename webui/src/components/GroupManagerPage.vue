@@ -321,6 +321,18 @@ defineExpose({ refresh: polling.refresh })
   min-width: 0;
   min-height: 0;
 }
+
+/* 窄屏：左右两栏改为上下堆叠，避免固定宽度左栏挤压右栏 */
+@media (max-width: 767px) {
+  .page {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .left-panel {
+    width: 100%;
+    flex-shrink: 1;
+  }
+}
 .panel-title {
   font-size: 15px;
   font-weight: 600;

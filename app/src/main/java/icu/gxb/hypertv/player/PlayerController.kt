@@ -65,6 +65,26 @@ class PlayerController(
         }
     }
 
+    /** 退出播放页时停止播放：取消重试、复位当前频道与状态（等价于内部 [stopPlayback]） */
+    fun stop() {
+        stopPlayback()
+    }
+
+    /**
+     * 重新进入播放页时恢复上次播放：仅当处于 Idle 且已有频道缓存时，
+     * 重新触发开机自动播放（读上次频道，不存在播第一个）。
+     *
+     * 竞态：首次冷启动时频道列表可能尚未从 Room 发射（channels 为空），
+     * 此时静默跳过，由 [start] 的流发射走既有自动播放路径，保证不双播不漏播；
+     * 播放中（非 Idle）调用也会被跳过，避免打断当前播放。
+     */
+    fun resumeIfIdle() {
+        if (_state.value != PlayerState.Idle) return
+        val list = _channels.value
+        if (list.isEmpty()) return
+        scope.launch { autoStart(list) }
+    }
+
     // ---- 指令 ----
 
     /** 播放指定频道（按 id 在缓存列表中定位；找不到则忽略） */

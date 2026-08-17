@@ -16,7 +16,9 @@ import org.junit.Test
  *
  * 覆盖：play / switchTo 顺序与回绕 / switchToIndex / 开机自动播放（上次频道、
  * 无记录播第一个）/ 播放成功写 last_played_channel_id / 失败重试 3 次计数与
- * 2s 间隔 / 3 次后自动跳下一个频道（ADR-0007）/ 重试期间新指令打断。
+ * 2s 间隔 / 3 次后自动跳下一个频道（ADR-0007）/ 重试期间新指令打断 /
+ * 退出停止播放与重开恢复（ticket 02）：stop 复位、resumeIfIdle 恢复上次频道、
+ * 空列表与非 Idle 状态静默跳过。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerControllerTest {
@@ -374,6 +376,97 @@ class PlayerControllerTest {
 
         assertEquals(url("2"), player.urls.last())
         assertEquals(PlayerState.Preparing("2"), c.state.value)
+    }
+
+    // ---- 退出停止播放与重开恢复（ticket 02）----
+
+    @Test
+    fun `stop stops playback and resets state to idle`() = runTest {
+        val player = FakePlayer()
+        val source = FakeChannelSource(listOf(channel("1"), channel("2")))
+        val store = FakeLastChannelStore()
+
+        val c = controller(player, source, store, backgroundScope).apply { start() }
+        runController() // ch1
+        player.fireReady()
+        runCurrent()
+        assertEquals(PlayerState.Playing("1"), c.state.value)
+
+        c.stop()
+        assertEquals(PlayerState.Idle, c.state.value)
+        assertEquals("stop", player.calls.last())
+
+        // 播放停止后当前频道已清空：再触发错误回调也不应启动任何重试/跳转
+        player.fireError()
+        runController()
+        assertEquals(PlayerState.Idle, c.state.value)
+        assertEquals(1, player.calls.count { it == "setMediaItem" })
+    }
+
+    @Test
+    fun `stop then resumeIfIdle restores last channel playback`() = runTest {
+        val player = FakePlayer()
+        val source = FakeChannelSource(listOf(channel("1"), channel("2"), channel("3")))
+        val store = FakeLastChannelStore().apply { lastPlayed = "2" }
+
+        val c = controller(player, source, store, backgroundScope).apply { start() }
+        runController() // ch2
+        player.fireReady()
+        runCurrent()
+        assertEquals(PlayerState.Playing("2"), c.state.value)
+
+        c.stop()
+        assertEquals(PlayerState.Idle, c.state.value)
+
+        // 重开 App：恢复播放上次频道
+        c.resumeIfIdle()
+        runController()
+        assertEquals(url("2"), player.urls.last())
+        assertEquals(PlayerState.Preparing("2"), c.state.value)
+
+        // 恢复后正常回写上次频道
+        player.fireReady()
+        runCurrent()
+        assertEquals(PlayerState.Playing("2"), c.state.value)
+        assertEquals(listOf("2", "2"), store.saved)
+    }
+
+    @Test
+    fun `resumeIfIdle skips when channels are empty`() = runTest {
+        val player = FakePlayer()
+        val source = FakeChannelSource(emptyList())
+        val store = FakeLastChannelStore()
+
+        val c = controller(player, source, store, backgroundScope).apply { start() }
+        runController()
+        assertEquals(PlayerState.Idle, c.state.value)
+
+        // 冷启动时频道尚未从 Room 发射：静默跳过，不产生播放调用
+        c.resumeIfIdle()
+        runController()
+        assertTrue(player.calls.isEmpty())
+        assertEquals(PlayerState.Idle, c.state.value)
+    }
+
+    @Test
+    fun `resumeIfIdle does nothing when state is not idle`() = runTest {
+        val player = FakePlayer()
+        val source = FakeChannelSource(listOf(channel("1"), channel("2")))
+        val store = FakeLastChannelStore()
+
+        val c = controller(player, source, store, backgroundScope).apply { start() }
+        runController() // ch1
+        player.fireReady()
+        runCurrent()
+        assertEquals(PlayerState.Playing("1"), c.state.value)
+
+        val callsBefore = player.calls.size
+        c.resumeIfIdle()
+        runController()
+
+        // 播放中调用被跳过：无额外播放调用、状态不变
+        assertEquals(callsBefore, player.calls.size)
+        assertEquals(PlayerState.Playing("1"), c.state.value)
     }
 
     // ---- 分组列表（ticket 05）----
