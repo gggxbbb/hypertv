@@ -92,9 +92,12 @@ export const api = {
   importUrl(url: string) {
     return request<ImportResult>('/api/playlist/import', { method: 'POST', body: JSON.stringify({ url }) })
   },
-  /** 上传文件并解析预览（不落库）。 */
-  previewImportFile(file: File) {
-    return uploadFormData<ImportPreview>('/api/playlist/upload/preview', file)
+  /** 上传文件并解析预览（不落库）；sourceName 与导入一致（传文件名），同名源时返回增量预测。 */
+  previewImportFile(file: File, sourceName?: string) {
+    const form = new FormData()
+    if (sourceName) form.append('sourceName', sourceName)
+    form.append('file', file)
+    return uploadFormData<ImportPreview>('/api/playlist/upload/preview', form)
   },
   /** 确认导入上传文件；sourceName 非空时后端按 (type=file, name) 做同源增量合并。 */
   importFile(file: File, sourceName?: string) {

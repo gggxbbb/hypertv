@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
-import type { UploadFile } from 'element-plus'
+import type { UploadFile, UploadInstance } from 'element-plus'
 import { api } from '@/api/client'
 import type { ImportPreview, ImportResult, PlaylistDTO } from '@/api/types'
 import { usePlaylistsStore } from '@/stores/playlists'
@@ -54,6 +54,7 @@ const fileInput = ref<File | null>(null)
 const filePreviewing = ref(false)
 const filePreview = ref<ImportPreview | null>(null)
 const fileImporting = ref(false)
+const fileUploadRef = ref<UploadInstance | null>(null)
 
 function onFileSelected(uploadFile: UploadFile) {
   const raw = uploadFile.raw
@@ -66,7 +67,8 @@ function onFileSelected(uploadFile: UploadFile) {
 async function previewFile(file: File) {
   filePreviewing.value = true
   try {
-    filePreview.value = await api.previewImportFile(file)
+    // 传文件名作 sourceName，与确认导入一致：同名源时后端返回增量预测（冲突提示数字）
+    filePreview.value = await api.previewImportFile(file, file.name)
   } catch (e) {
     ElMessage.error((e as Error).message)
   } finally {
@@ -84,12 +86,21 @@ async function confirmImportFile() {
     showImportResult(result)
     filePreview.value = null
     fileInput.value = null
+    // 清空 el-upload 内部 fileList，否则 limit=1 下无法再次选择同一文件
+    fileUploadRef.value?.clearFiles()
     await playlistsStore.refresh()
   } catch (e) {
     ElMessage.error((e as Error).message)
   } finally {
     fileImporting.value = false
   }
+}
+
+function cancelFilePreview() {
+  filePreview.value = null
+  fileInput.value = null
+  // 清空 el-upload 内部 fileList：否则取消后再次拖入同一文件被 limit=1 拒绝（on-change 不触发）
+  fileUploadRef.value?.clearFiles()
 }
 
 function showImportResult(r: ImportResult) {
@@ -206,10 +217,10 @@ defineExpose({ refresh: polling.refresh })
             </div>
             <div
               v-if="
-                urlPreview.imported !== null &&
-                urlPreview.updated !== null &&
-                urlPreview.hidden !== null &&
-                urlPreview.existingChannelCount !== null
+                urlPreview.imported != null &&
+                urlPreview.updated != null &&
+                urlPreview.hidden != null &&
+                urlPreview.existingChannelCount != null
               "
               class="conflict-hint"
             >
@@ -225,6 +236,7 @@ defineExpose({ refresh: polling.refresh })
 
         <el-tab-pane label="文件上传">
           <el-upload
+            ref="fileUploadRef"
             drag
             :auto-upload="false"
             :show-file-list="false"
@@ -260,10 +272,10 @@ defineExpose({ refresh: polling.refresh })
             </div>
             <div
               v-if="
-                filePreview.imported !== null &&
-                filePreview.updated !== null &&
-                filePreview.hidden !== null &&
-                filePreview.existingChannelCount !== null
+                filePreview.imported != null &&
+                filePreview.updated != null &&
+                filePreview.hidden != null &&
+                filePreview.existingChannelCount != null
               "
               class="conflict-hint"
             >
@@ -272,7 +284,7 @@ defineExpose({ refresh: polling.refresh })
             </div>
             <div class="preview-actions">
               <el-button type="primary" :loading="fileImporting" @click="confirmImportFile">确认导入</el-button>
-              <el-button @click="filePreview = null; fileInput = null">取消</el-button>
+              <el-button @click="cancelFilePreview">取消</el-button>
             </div>
           </div>
         </el-tab-pane>
