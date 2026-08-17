@@ -36,6 +36,16 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            // Robolectric 需要访问 Android resources（Room in-memory 单测）
+            isIncludeAndroidResources = true
+        }
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -62,10 +72,18 @@ dependencies {
     implementation(libs.coil.compose)
     // ZXing
     implementation(libs.zxing.core)
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
     // Tests
     testImplementation(libs.junit)
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
