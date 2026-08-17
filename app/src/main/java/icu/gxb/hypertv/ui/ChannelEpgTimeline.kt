@@ -41,32 +41,31 @@ internal fun ChannelEpgTimeline(
     val status = epgStatusText(channel, epgTimeline, nowMs)
 
     Column(modifier = modifier.fillMaxSize()) {
-        // 顶部：频道名 + EPG 状态
+        // 顶部：频道名 + EPG 状态（同一行，紧凑）
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 16.dp, end = 20.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = buildString {
-                        if (channel?.isFavorite == true) append("★ ")
-                        append(channel?.name.orEmpty())
-                    },
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = status,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (status == "未匹配 EPG") 0.5f else 0.75f),
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                text = buildString {
+                    if (channel?.isFavorite == true) append("★ ")
+                    append(channel?.name.orEmpty())
+                },
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = status,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (status == "未匹配 EPG") 0.5f else 0.7f),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp),
+            )
         }
 
         // 时间轴：小时刻度 + 单频道节目条（复用 Guide 共享绘制组件）
@@ -74,7 +73,7 @@ internal fun ChannelEpgTimeline(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(start = 20.dp, top = 12.dp, end = 20.dp),
+                .padding(start = 16.dp, top = 4.dp, end = 16.dp),
         ) {
             val density = LocalDensity.current
             val gridWidthPx = with(density) { maxWidth.toPx() }
@@ -130,5 +129,5 @@ private fun epgStatusText(
     }
 }
 
-private val TICK_HEIGHT = 24.dp
+private val TICK_HEIGHT = 16.dp
 private const val GRID_LINE_ALPHA = 0.14f

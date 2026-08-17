@@ -566,6 +566,7 @@ private fun ChannelListPanel(
 ) {
     Row(
         modifier = Modifier.fillMaxSize(),
+        verticalAlignment = Alignment.Bottom,
     ) {
         // 左栏：分组标签行 + 频道列表（全高，半透明背景遮住视频便于聚焦）
         Column(
@@ -921,8 +922,8 @@ private const val FAVORITE_HINT_BG_ALPHA = 0.8f
 private const val NUMBER_BG_ALPHA = 0.8f
 private const val PANEL_BG_ALPHA = 0.75f
 
-/** 右栏 EPG 时间轴面板高度（矮条：频道名 + 现在播出 + 时间轴，够用即可，下方露出视频） */
-private val EPG_PANEL_HEIGHT = 190.dp
+/** 右栏 EPG 时间轴面板高度（矮条：频道名 + 时间轴，够显示即可，下方露出视频） */
+private val EPG_PANEL_HEIGHT = 100.dp
 
 /** 浮层左栏宽度权重（右栏为剩余区域） */
 private const val LEFT_COLUMN_WEIGHT = 0.58f

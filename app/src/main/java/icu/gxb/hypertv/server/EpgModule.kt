@@ -6,6 +6,7 @@ import icu.gxb.hypertv.epg.EpgRefreshService
 import icu.gxb.hypertv.epg.EpgStore
 import icu.gxb.hypertv.epg.MatchRuleManager
 import icu.gxb.hypertv.epg.MatchRuleType
+import icu.gxb.hypertv.ui.EPG_ZONE
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -308,7 +309,7 @@ fun Application.epgModule(
                 call.respond(HttpStatusCode.NotFound, ApiError("频道不存在：$channelId"))
                 return@get
             }
-            val zone = ZoneId.systemDefault()
+            val zone = EPG_ZONE
             val dateStr = call.request.queryParameters["date"]
             val day = if (dateStr.isNullOrBlank()) {
                 LocalDate.now(zone)

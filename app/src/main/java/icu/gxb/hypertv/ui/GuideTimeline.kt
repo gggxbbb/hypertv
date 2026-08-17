@@ -16,6 +16,14 @@ import java.time.ZonedDateTime
  * 所有时间戳为 epoch 毫秒；时间窗口 [windowStart, windowEnd)。
  */
 
+/**
+ * EPG 显示时区：固定北京时间 GMT+8（用户需求 2026-08-17）。
+ *
+ * XMLTV 源（如 epg.51zmt.top）时间标记 +0800，解析为 epoch 后按此时区显示；
+ * 不依赖系统时区（模拟器/真机可能为 GMT 等，会导致时间轴差 8 小时）。
+ */
+val EPG_ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+
 /** 时间窗口总时长（小时）：以当前小时为中心 ±[WINDOW_CENTER_HOURS] */
 const val WINDOW_DURATION_HOURS = 6
 
@@ -43,7 +51,7 @@ data class ProgramLayout(
 /**
  * 把毫秒时间戳向下对齐到整点（本地时区）。例如 14:37 → 14:00。
  */
-fun alignToHour(ms: Long, zone: ZoneId = ZoneId.systemDefault()): Long {
+fun alignToHour(ms: Long, zone: ZoneId = EPG_ZONE): Long {
     val zoned = ZonedDateTime.ofInstant(Instant.ofEpochMilli(ms), zone)
     return zoned.toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli() +
         zoned.hour * HOUR_MS
@@ -53,7 +61,7 @@ fun alignToHour(ms: Long, zone: ZoneId = ZoneId.systemDefault()): Long {
  * Guide 打开时的默认窗口起始：当前小时向前偏移 [WINDOW_CENTER_HOURS] 小时。
  * 例如 now=14:37 → 窗口 [11:00, 17:00)（以 14 点为中心 ±3 小时）。
  */
-fun guideWindowStartFor(nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
+fun guideWindowStartFor(nowMs: Long, zone: ZoneId = EPG_ZONE): Long =
     alignToHour(nowMs, zone) - WINDOW_CENTER_HOURS * HOUR_MS
 
 /**
@@ -108,17 +116,17 @@ fun findCurrentProgram(
 ): EpgProgramEntity? = programs.firstOrNull { it.startTime <= nowMs && nowMs < it.endTime }
 
 /** 时间窗口的起止时间文本（如 "08:00 - 14:00"），用于 Guide 头部。 */
-fun formatWindowRange(windowStartMs: Long, durationMs: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+fun formatWindowRange(windowStartMs: Long, durationMs: Long, zone: ZoneId = EPG_ZONE): String =
     "${formatTime(windowStartMs, zone)} - ${formatTime(windowStartMs + durationMs, zone)}"
 
 /** 时间戳 → "HH:mm"（本地时区）。 */
-fun formatTime(ms: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+fun formatTime(ms: Long, zone: ZoneId = EPG_ZONE): String {
     val t = ZonedDateTime.ofInstant(Instant.ofEpochMilli(ms), zone)
     return String.format("%02d:%02d", t.hour, t.minute)
 }
 
 /** 时间戳 → "HH:00"（时间轴刻度用）。 */
-fun formatHourTick(ms: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+fun formatHourTick(ms: Long, zone: ZoneId = EPG_ZONE): String {
     val t = ZonedDateTime.ofInstant(Instant.ofEpochMilli(ms), zone)
     return String.format("%02d:00", t.hour)
 }

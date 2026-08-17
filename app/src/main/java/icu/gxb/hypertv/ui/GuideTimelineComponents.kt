@@ -1,5 +1,6 @@
 package icu.gxb.hypertv.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -95,7 +96,7 @@ internal fun GuideProgramRow(
         modifier = modifier
             .clipToBounds()
             .drawBehind {
-                // 小时分界竖线 + 当前时间线
+                // 小时分界竖线（当前时间游标在覆盖层绘制，见下方 Canvas）
                 val hourWidth = size.width / WINDOW_DURATION_HOURS
                 for (i in 1 until WINDOW_DURATION_HOURS) {
                     drawLine(
@@ -103,14 +104,6 @@ internal fun GuideProgramRow(
                         start = Offset(i * hourWidth, 0f),
                         end = Offset(i * hourWidth, size.height),
                         strokeWidth = 1f,
-                    )
-                }
-                if (currentTimeX != null && currentTimeX in 0f..size.width) {
-                    drawLine(
-                        color = CURRENT_TIME_COLOR,
-                        start = Offset(currentTimeX, 0f),
-                        end = Offset(currentTimeX, size.height),
-                        strokeWidth = 2f,
                     )
                 }
             },
@@ -144,7 +137,7 @@ internal fun GuideProgramRow(
                 ) {
                     Text(
                         text = prog.title,
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -153,14 +146,29 @@ internal fun GuideProgramRow(
                 }
             }
         }
+        // 覆盖层：当前时间游标画在所有节目条之上（用户需求：游标覆盖在时间轴上方）
+        if (currentTimeX != null) {
+            Canvas(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (currentTimeX in 0f..size.width) {
+                    drawLine(
+                        color = CURRENT_TIME_COLOR,
+                        start = Offset(currentTimeX, 0f),
+                        end = Offset(currentTimeX, size.height),
+                        strokeWidth = 2f,
+                    )
+                }
+            }
+        }
     }
 }
 
-/** 节目条底色 */
-internal val PROGRAM_BAR_COLOR = Color(0xFF3D6FA3)
+/** 节目条底色（黑白灰配色：深灰表面，白字） */
+internal val PROGRAM_BAR_COLOR = Color(0xFF3A3A42)
 
-/** 焦点行节目条底色 */
-internal val PROGRAM_BAR_FOCUS_COLOR = Color(0xFF5A8EC2)
+/** 焦点行节目条底色（略浅） */
+internal val PROGRAM_BAR_FOCUS_COLOR = Color(0xFF5E5E68)
 
-/** 当前时间竖线颜色 */
-internal val CURRENT_TIME_COLOR = Color(0xFFFFD740)
+/** 当前时间竖线颜色（白色指示） */
+internal val CURRENT_TIME_COLOR = Color(0xFFE8E8EA)

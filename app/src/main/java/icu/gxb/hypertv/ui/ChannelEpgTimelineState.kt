@@ -39,7 +39,7 @@ class ChannelEpgTimelineState(
      * 为选中频道加载 EPG 时间轴数据。频道未匹配 EPG（epgId == null）或为 null 时清空状态。
      * 窗口以 [nowMs] 所在小时为中心 ±[WINDOW_CENTER_HOURS] 小时。
      */
-    suspend fun loadFor(channel: Channel?, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()) {
+    suspend fun loadFor(channel: Channel?, nowMs: Long, zone: ZoneId = EPG_ZONE) {
         val seq = ++loadSeq
         windowStartMs = guideWindowStartFor(nowMs, zone)
         val epgId = channel?.epgId
