@@ -90,10 +90,11 @@ dependencies {
     // JVM 单测运行时无框架实现，故仅 testImplementation。
     // 注意：kxml2 的 META-INF/services 若被打进 APK 会引 KXmlParser，降级后不再打包。
 
-    // Media3 播放器（ExoPlayer 核心 + HLS 支持 + PlayerView 控件）
+    // Media3 播放器（ExoPlayer 核心 + HLS 支持 + PlayerView 控件 + MediaSession）
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.session)
 
     // Tests
     testImplementation(libs.junit)

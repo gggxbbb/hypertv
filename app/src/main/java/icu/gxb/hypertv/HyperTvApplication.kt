@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.media3.session.MediaSession
 import dagger.hilt.android.HiltAndroidApp
 import icu.gxb.hypertv.di.ApplicationScope
 import icu.gxb.hypertv.epg.EpgRefreshService
@@ -23,6 +24,9 @@ class HyperTvApplication : Application() {
     lateinit var epgRefresher: EpgRefreshService
 
     @Inject
+    lateinit var mediaSession: MediaSession
+
+    @Inject
     @ApplicationScope
     lateinit var applicationScope: CoroutineScope
 
@@ -35,6 +39,16 @@ class HyperTvApplication : Application() {
         startServerService()
         // EPG 启动过期即刷（ADR-0005）：距上次成功刷新 >12h 则后台自动拉取，不阻塞启动
         applicationScope.launch { epgRefresher.refreshIfStale() }
+    }
+
+    /**
+     * 释放 MediaSession（ticket 03）。注意：onTerminate 仅开发模拟器场景会被调用，
+     * 真实设备上进程被系统终结时不回调，由进程终结直接回收（MediaSession 无需显式
+     * release，@Singleton 实例随进程消亡）。此处仅保证模拟器/调试路径干净退场。
+     */
+    override fun onTerminate() {
+        mediaSession.release()
+        super.onTerminate()
     }
 
     private fun startServerService() {

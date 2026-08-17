@@ -1,6 +1,7 @@
 package icu.gxb.hypertv
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
@@ -59,6 +60,9 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 播放页窗口防休眠/屏保（ticket 03 目标③，无需权限）：
+        // 窗口存活期间屏幕保持常亮，Activity 销毁（退出播放页）后自动失效
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             HyperTVTheme {
                 val channels by playerController.channels.collectAsState()
