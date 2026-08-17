@@ -53,7 +53,7 @@
 - **EPG 匹配**：三级——tvg-id 精确 → 忽略大小写 → 频道名归一化（去空白/全半角/标点）；不做模糊评分；WebUI 支持手动绑定。
 - **配置入口**：电视端零配置，WebUI 唯一配置入口；"关于"页只读展示连接信息（ADR-0002）。
 - **Android 系统要求**：Network Security Config 放行明文 http（否则 http 源不可播）；Ktor 服务运行于前台服务（含常驻通知）保活；无 mDNS、无 PIN（v2）。
-- **API 契约（Ktor REST，局域网 0.0.0.0:8080）**：
+- **API 契约（Ktor REST，局域网，动态端口 49152-65535：随机生成 + 保存复用 + 失败重试，实际端口从"关于"页获取，见 ADR-0008）**：
   - GET /api/status → {version, ip, port}
   - GET /api/channels、/api/channels/favorites、GET/POST /api/groups、POST /api/channels/reorder、PUT/DELETE /api/channels/{id}、POST /api/channels/{id}/favorite
   - POST /api/playlist/import（URL）、POST /api/playlist/upload（multipart）、POST /api/playlist/{id}/refresh、DELETE /api/playlist/{id}
