@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 class PlayerController(
     private val player: PlayerOperations,
     private val channelSource: ChannelSource,
+    private val groupSource: GroupSource,
     private val lastChannelStore: LastChannelStore,
     private val scope: CoroutineScope,
     private val retryDelayMs: Long = RETRY_DELAY_MS,
@@ -38,6 +39,10 @@ class PlayerController(
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
     val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
 
+    /** 缓存的可见分组名列表（按 orderIndex 升序，频道列表浮层标签行，ticket 05） */
+    private val _groups = MutableStateFlow<List<String>>(emptyList())
+    val groups: StateFlow<List<String>> = _groups.asStateFlow()
+
     private var started = false
     private var autoPlayStarted = false
     private var retryJob: Job? = null
@@ -48,12 +53,15 @@ class PlayerController(
         player.addListener(this)
     }
 
-    /** 由应用启动时调用：开始观察频道列表并触发开机自动播放 */
+    /** 由应用启动时调用：开始观察频道列表与分组列表并触发开机自动播放 */
     fun start() {
         if (started) return
         started = true
         scope.launch {
             channelSource.visibleChannels.collect { list -> onChannelsUpdated(list) }
+        }
+        scope.launch {
+            groupSource.groups.collect { list -> _groups.value = list }
         }
     }
 

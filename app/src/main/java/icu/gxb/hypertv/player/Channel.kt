@@ -9,4 +9,10 @@ data class Channel(
     val name: String,
     val url: String,
     val groupName: String,
+    /** 台标 URL（浮层列表展示，Coil 异步加载），可能为空 */
+    val logoUrl: String? = null,
+    /** 收藏标记（浮层"收藏"标签过滤） */
+    val isFavorite: Boolean = false,
+    /** 全局稳定排序位置，频道号 = orderIndex + 1（与分组无关） */
+    val orderIndex: Int = 0,
 )

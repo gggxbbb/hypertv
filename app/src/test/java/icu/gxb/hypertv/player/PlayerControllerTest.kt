@@ -76,6 +76,14 @@ class PlayerControllerTest {
         }
     }
 
+    private class FakeGroupSource(initial: List<String> = emptyList()) : GroupSource {
+        private val flow = MutableStateFlow(initial)
+        override val groups: Flow<List<String>> = flow
+        fun emit(list: List<String>) {
+            flow.value = list
+        }
+    }
+
     private class FakeLastChannelStore : LastChannelStore {
         var lastPlayed: String? = null
         val saved = mutableListOf<String>()
@@ -90,7 +98,14 @@ class PlayerControllerTest {
         source: FakeChannelSource,
         store: FakeLastChannelStore,
         scope: CoroutineScope,
-    ) = PlayerController(player = player, channelSource = source, lastChannelStore = store, scope = scope)
+        groups: FakeGroupSource = FakeGroupSource(),
+    ) = PlayerController(
+        player = player,
+        channelSource = source,
+        groupSource = groups,
+        lastChannelStore = store,
+        scope = scope,
+    )
 
     /**
      * 推进 controller 的协程任务：使用 runCurrent 处理 backgroundScope 中当前时刻的
@@ -359,5 +374,25 @@ class PlayerControllerTest {
 
         assertEquals(url("2"), player.urls.last())
         assertEquals(PlayerState.Preparing("2"), c.state.value)
+    }
+
+    // ---- 分组列表（ticket 05）----
+
+    @Test
+    fun `groups are exposed from group source`() = runTest {
+        val player = FakePlayer()
+        val source = FakeChannelSource(listOf(channel("1")))
+        val groups = FakeGroupSource(listOf("新闻", "体育"))
+        val store = FakeLastChannelStore()
+
+        val c = controller(player, source, store, backgroundScope, groups).apply { start() }
+        runController()
+
+        assertEquals(listOf("新闻", "体育"), c.groups.value)
+
+        // 分组变化（WebUI 增删分组）实时反映
+        groups.emit(listOf("新闻", "体育", "少儿"))
+        runController()
+        assertEquals(listOf("新闻", "体育", "少儿"), c.groups.value)
     }
 }

@@ -35,6 +35,10 @@ object PlayerModule {
         RepositoryChannelSource(repository)
 
     @Provides
+    fun provideGroupSource(repository: HypertvRepository): GroupSource =
+        RepositoryGroupSource(repository)
+
+    @Provides
     fun provideLastChannelStore(repository: HypertvRepository): LastChannelStore =
         AppConfigLastChannelStore(repository)
 
@@ -43,11 +47,13 @@ object PlayerModule {
     fun providePlayerController(
         playerOperations: PlayerOperations,
         channelSource: ChannelSource,
+        groupSource: GroupSource,
         lastChannelStore: LastChannelStore,
         @ApplicationScope scope: CoroutineScope,
     ): PlayerController = PlayerController(
         player = playerOperations,
         channelSource = channelSource,
+        groupSource = groupSource,
         lastChannelStore = lastChannelStore,
         scope = scope,
     )

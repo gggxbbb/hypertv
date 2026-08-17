@@ -71,8 +71,9 @@ dependencies {
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    // Coil
+    // Coil（台标异步加载 + 网络 fetcher + 磁盘缓存）
     implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
     // ZXing
     implementation(libs.zxing.core)
     // Room
