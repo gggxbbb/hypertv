@@ -12,7 +12,15 @@ export interface ChannelDTO {
   isFavorite: boolean
   isHidden: boolean
   epgId: string | null
+  /** EPG 匹配来源（v5）：null=未匹配；"manual" | "rule" | "level1"~"level5" */
+  epgMatchSource: string | null
   catchup: string | null
+  /** 以下为可选元数据（后端 DTO 暂未全部返回，有值才展示） */
+  catchupDays?: number | null
+  catchupSource?: string | null
+  orderIndex?: number | null
+  tvgId?: string | null
+  createdAt?: number | null
 }
 
 export interface GroupDTO {

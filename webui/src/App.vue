@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { VideoCamera, Folder, Platform, Calendar } from '@element-plus/icons-vue'
 </script>
 
 <template>
@@ -10,10 +11,18 @@ import { useRoute } from 'vue-router'
         HyperTV 管理
       </div>
       <nav class="nav">
-        <router-link to="/" class="nav-link" :class="{ active: useRoute().path === '/' }">频道</router-link>
-        <router-link to="/groups" class="nav-link" :class="{ active: useRoute().path === '/groups' }">分组</router-link>
-        <router-link to="/sources" class="nav-link" :class="{ active: useRoute().path === '/sources' }">📡 直播源</router-link>
-        <router-link to="/epg" class="nav-link" :class="{ active: useRoute().path === '/epg' }">📺 EPG</router-link>
+        <router-link to="/" class="nav-link" :class="{ active: useRoute().path === '/' }">
+          <el-icon><VideoCamera /></el-icon><span>频道</span>
+        </router-link>
+        <router-link to="/groups" class="nav-link" :class="{ active: useRoute().path === '/groups' }">
+          <el-icon><Folder /></el-icon><span>分组</span>
+        </router-link>
+        <router-link to="/sources" class="nav-link" :class="{ active: useRoute().path === '/sources' }">
+          <el-icon><Platform /></el-icon><span>直播源</span>
+        </router-link>
+        <router-link to="/epg" class="nav-link" :class="{ active: useRoute().path === '/epg' }">
+          <el-icon><Calendar /></el-icon><span>EPG</span>
+        </router-link>
       </nav>
     </header>
     <main class="app-main">
@@ -61,6 +70,9 @@ import { useRoute } from 'vue-router'
   color: #d1d5db;
   text-decoration: none;
   font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .nav-link:hover {
   color: #fff;

@@ -2,16 +2,30 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Star, StarFilled, Delete, Picture, EditPen, Refresh } from '@element-plus/icons-vue'
+import {
+  Star,
+  StarFilled,
+  Delete,
+  Picture,
+  EditPen,
+  Refresh,
+  Search,
+  ArrowDown,
+  ArrowRight,
+  CopyDocument,
+} from '@element-plus/icons-vue'
 import { useChannelsStore } from '@/stores/channels'
 import { useGroupsStore } from '@/stores/groups'
+import { usePlaylistsStore } from '@/stores/playlists'
 import { usePolling } from '@/composables/usePolling'
 import { debounce } from '@/composables/useDebounce'
 import { api } from '@/api/client'
-import type { ChannelDTO, EpgChannelCandidate, EpgChannelNameMap } from '@/api/types'
+import { epgMatchSourceMeta } from '@/utils/epgMatch'
+import type { ChannelDTO, EpgChannelCandidate, EpgChannelNameMap, EpgProgram } from '@/api/types'
 
 const channelsStore = useChannelsStore()
 const groupsStore = useGroupsStore()
+const playlistsStore = usePlaylistsStore()
 
 // ---- 过滤条件 ----
 const searchInput = ref('')
@@ -170,6 +184,74 @@ function onEpgSelectVisible(visible: boolean) {
   if (!visible) editingEpgId.value = null
 }
 
+// ---- 频道详情：展开 + 今日节目单 ----
+const expandedId = ref<string | null>(null)
+
+interface GuideState {
+  channelId: string
+  loading: boolean
+  error: string | null
+  programs: EpgProgram[]
+}
+const guideState = ref<GuideState | null>(null)
+
+function todayLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function formatClock(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function formatTimestamp(ts?: number | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('zh-CN', { hour12: false })
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
+
+/** 直播源名映射：playlists store 可用时显示源名，否则回退 sourceId */
+const playlistNameById = computed(() => new Map(playlistsStore.playlists.map((p) => [p.id, p.name])))
+
+function sourceLabel(ch: ChannelDTO): string {
+  const name = playlistNameById.value.get(ch.sourceId)
+  return name ? `${name}（${ch.sourceId}）` : ch.sourceId
+}
+
+function toggleExpand(ch: ChannelDTO) {
+  if (expandedId.value === ch.id) {
+    expandedId.value = null
+    guideState.value = null
+  } else {
+    expandedId.value = ch.id
+    void loadGuide(ch)
+  }
+}
+
+/** 拉取该频道今日节目单；未绑定 EPG 直接置空（不请求）。 */
+async function loadGuide(ch: ChannelDTO) {
+  if (!ch.epgId) {
+    guideState.value = { channelId: ch.id, loading: false, error: null, programs: [] }
+    return
+  }
+  guideState.value = { channelId: ch.id, loading: true, error: null, programs: [] }
+  try {
+    const guide = await api.epgGuide(ch.id, todayLocal())
+    guideState.value = { channelId: ch.id, loading: false, error: null, programs: guide.programs }
+  } catch (e) {
+    guideState.value = { channelId: ch.id, loading: false, error: (e as Error).message, programs: [] }
+  }
+}
+
 // ---- 删除 ----
 async function confirmDelete(ch: ChannelDTO) {
   try {
@@ -211,7 +293,7 @@ function batchHide(hide: boolean) {
 
 // ---- 轮询同步（5s）+ 操作后立即拉取（ADR-0003）----
 const polling = usePolling(() => {
-  void Promise.all([channelsStore.refresh(), groupsStore.refresh(), loadEpgCandidates()])
+  void Promise.all([channelsStore.refresh(), groupsStore.refresh(), loadEpgCandidates(), playlistsStore.refresh()])
 })
 
 function onLogoError(e: Event) {
@@ -236,7 +318,7 @@ defineExpose({ refresh: polling.refresh })
         placeholder="搜索频道名 / 分组 / 频道号（即时搜索）"
         clearable
       >
-        <template #prefix>🔍</template>
+        <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
       <el-select v-model="groupFilter" class="group-select" placeholder="全部分组" clearable>
         <el-option label="全部分组" value="" />
@@ -290,6 +372,15 @@ defineExpose({ refresh: polling.refresh })
           class="channel-row"
           :class="{ hidden: ch.isHidden, selected: selectedIds.has(ch.id) }"
         >
+          <div class="channel-row-grid">
+            <el-button
+              class="row-expand"
+              link
+              :title="expandedId === ch.id ? '收起详情' : '展开详情'"
+              @click="toggleExpand(ch)"
+            >
+              <el-icon><ArrowDown v-if="expandedId === ch.id" /><ArrowRight v-else /></el-icon>
+            </el-button>
           <span class="drag-handle" title="拖拽排序">⠿</span>
           <el-checkbox
             :model-value="selectedIds.has(ch.id)"
@@ -389,6 +480,120 @@ defineExpose({ refresh: polling.refresh })
               <el-icon><Delete /></el-icon>
             </el-button>
           </span>
+          </div>
+
+          <!-- 详情卡片 -->
+          <div v-if="expandedId === ch.id" class="channel-detail">
+            <div class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">频道名</span>
+                <span class="detail-value">{{ ch.name }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">频道号</span>
+                <span class="detail-value">{{ ch.number }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">分组</span>
+                <span class="detail-value">{{ ch.groupName || '未分组' }}</span>
+              </div>
+              <div class="detail-item detail-item-wide">
+                <span class="detail-label">播放地址</span>
+                <span class="detail-value detail-url">
+                  <a :href="ch.url" target="_blank" rel="noopener" class="url-text">{{ ch.url }}</a>
+                  <el-button link size="small" title="复制播放地址" @click="copyText(ch.url)">
+                    <el-icon><CopyDocument /></el-icon>
+                  </el-button>
+                </span>
+              </div>
+              <div v-if="ch.logoUrl" class="detail-item detail-item-wide">
+                <span class="detail-label">台标</span>
+                <span class="detail-value detail-logo">
+                  <img :src="ch.logoUrl" alt="" class="detail-logo-img" loading="lazy" @error="onLogoError" />
+                  <a :href="ch.logoUrl" target="_blank" rel="noopener" class="url-text">{{ ch.logoUrl }}</a>
+                  <el-button link size="small" title="复制台标 URL" @click="copyText(ch.logoUrl)">
+                    <el-icon><CopyDocument /></el-icon>
+                  </el-button>
+                </span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">直播源</span>
+                <span class="detail-value">{{ sourceLabel(ch) }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">频道 ID</span>
+                <span class="detail-value">{{ ch.id }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">收藏</span>
+                <span class="detail-value">{{ ch.isFavorite ? '已收藏' : '未收藏' }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">状态</span>
+                <span class="detail-value">{{ ch.isHidden ? '已隐藏' : '正常' }}</span>
+              </div>
+              <div v-if="ch.orderIndex != null" class="detail-item">
+                <span class="detail-label">排序索引</span>
+                <span class="detail-value">{{ ch.orderIndex }}</span>
+              </div>
+              <div v-if="ch.catchup" class="detail-item">
+                <span class="detail-label">回看</span>
+                <span class="detail-value">{{ ch.catchup }}</span>
+              </div>
+              <div v-if="ch.catchupDays" class="detail-item">
+                <span class="detail-label">回看天数</span>
+                <span class="detail-value">{{ ch.catchupDays }}</span>
+              </div>
+              <div v-if="ch.catchupSource" class="detail-item">
+                <span class="detail-label">回看源</span>
+                <span class="detail-value">{{ ch.catchupSource }}</span>
+              </div>
+              <div v-if="ch.tvgId" class="detail-item">
+                <span class="detail-label">tvg-id</span>
+                <span class="detail-value">{{ ch.tvgId }}</span>
+              </div>
+              <div v-if="ch.createdAt" class="detail-item">
+                <span class="detail-label">创建时间</span>
+                <span class="detail-value">{{ formatTimestamp(ch.createdAt) }}</span>
+              </div>
+            </div>
+
+            <div class="detail-section">
+              <div class="detail-section-title">EPG 匹配</div>
+              <div class="epg-match-row">
+                <template v-if="ch.epgId">
+                  <span class="epg-match-channel">{{ epgDisplayName(ch.epgId) }}</span>
+                  <span class="epg-match-id">({{ ch.epgId }})</span>
+                  <el-tag size="small" :type="epgMatchSourceMeta(ch.epgMatchSource).tagType" effect="plain">
+                    {{ epgMatchSourceMeta(ch.epgMatchSource).text }}
+                  </el-tag>
+                  <el-button link size="small" title="复制 epgId" @click="copyText(ch.epgId!)">
+                    <el-icon><CopyDocument /></el-icon>
+                  </el-button>
+                </template>
+                <span v-else class="epg-unmatched">未匹配</span>
+              </div>
+            </div>
+
+            <div class="detail-section">
+              <div class="detail-section-title">今日节目单（{{ todayLocal() }}）</div>
+              <div v-if="guideState?.loading" class="guide-hint">加载中…</div>
+              <div v-else-if="guideState?.error" class="guide-hint guide-error">
+                加载失败：{{ guideState.error }}
+                <el-button link size="small" @click="loadGuide(ch)">重试</el-button>
+              </div>
+              <div v-else-if="!ch.epgId" class="guide-hint">未匹配 EPG，无节目单</div>
+              <div v-else-if="guideState && guideState.programs.length === 0" class="guide-hint">
+                该频道当天暂无节目单（EPG 源中可能没有该频道的数据）
+              </div>
+              <ul v-else class="guide-list">
+                <li v-for="p in guideState?.programs" :key="p.id" class="guide-item">
+                  <span class="guide-time">{{ formatClock(p.startTime) }} - {{ formatClock(p.endTime) }}</span>
+                  <span class="guide-title" :title="p.description || ''">{{ p.title }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
         <div v-if="rows.length === 0" class="empty-hint">没有符合条件的频道</div>
       </VueDraggable>
@@ -448,25 +653,33 @@ defineExpose({ refresh: polling.refresh })
   min-width: 1080px;
 }
 .channel-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid #f3f4f6;
+}
+.channel-row-grid {
   display: grid;
-  grid-template-columns: 24px 28px 56px 36px 1fr 150px 180px 32px 44px 72px;
+  grid-template-columns: 24px 24px 28px 56px 36px 1fr 150px 180px 32px 44px 72px;
   align-items: center;
   gap: 6px;
   height: 52px;
   padding: 0 10px;
-  border-bottom: 1px solid #f3f4f6;
   font-size: 13px;
 }
-.channel-row:hover {
+.channel-row-grid:hover {
   background: #f9fafb;
 }
-.channel-row.selected {
+.channel-row.selected .channel-row-grid {
   background: #eef2ff;
 }
 .channel-row.hidden .ch-name-text,
 .channel-row.hidden .ch-number {
   color: #9ca3af;
   text-decoration: line-through;
+}
+.row-expand {
+  padding: 0;
+  color: #9ca3af;
 }
 .drag-handle {
   cursor: grab;
@@ -514,7 +727,7 @@ defineExpose({ refresh: polling.refresh })
   visibility: hidden;
   color: #9ca3af;
 }
-.channel-row:hover .edit-hint {
+.channel-row-grid:hover .edit-hint {
   visibility: visible;
 }
 .ch-group {
@@ -557,6 +770,131 @@ defineExpose({ refresh: polling.refresh })
 .ch-actions {
   display: flex;
   justify-content: flex-end;
+}
+.channel-detail {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-top: 1px solid #eef2f7;
+  font-size: 13px;
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.detail-item-wide {
+  grid-column: span 3;
+}
+.detail-label {
+  flex-shrink: 0;
+  color: #6b7280;
+  min-width: 56px;
+}
+.detail-value {
+  color: #374151;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.detail-url {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.url-text {
+  color: #2563eb;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.url-text:hover {
+  text-decoration: underline;
+}
+.detail-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.detail-logo-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #f3f4f6;
+  flex-shrink: 0;
+}
+.detail-section {
+  margin-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+}
+.detail-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+.epg-match-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.epg-match-channel {
+  font-weight: 500;
+  color: #111827;
+}
+.epg-match-id {
+  color: #9ca3af;
+  font-size: 12px;
+}
+.guide-hint {
+  color: #9ca3af;
+  padding: 6px 0;
+}
+.guide-error {
+  color: #b91c1c;
+}
+.guide-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.guide-item {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 5px 4px;
+  border-bottom: 1px dashed #e5e7eb;
+  font-size: 13px;
+}
+.guide-item:last-child {
+  border-bottom: none;
+}
+.guide-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+  font-size: 12px;
+  min-width: 100px;
+}
+.guide-title {
+  color: #374151;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .empty-hint {
   padding: 40px;

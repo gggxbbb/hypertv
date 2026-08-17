@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, EditPen, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { Delete, EditPen, Link, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import type { UploadFile, UploadInstance } from 'element-plus'
 import { api } from '@/api/client'
 import type { ImportPreview, ImportResult, PlaylistDTO } from '@/api/types'
@@ -189,7 +189,7 @@ defineExpose({ refresh: polling.refresh })
               clearable
               @keyup.enter="previewUrl"
             >
-              <template #prefix>🔗</template>
+              <template #prefix><el-icon><Link /></el-icon></template>
             </el-input>
             <el-button type="primary" :loading="urlPreviewing" @click="previewUrl">解析预览</el-button>
           </div>
