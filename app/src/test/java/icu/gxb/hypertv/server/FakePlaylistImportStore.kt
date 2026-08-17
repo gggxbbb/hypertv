@@ -9,17 +9,26 @@ class FakePlaylistImportStore : PlaylistImportStore {
     private val sources = mutableMapOf<String, PlaylistSourceEntity>()
     private val channels = mutableMapOf<String, MutableList<ChannelEntity>>()
 
-    fun sourceById(id: String): PlaylistSourceEntity? = sources[id]
-
-    fun sources(): List<PlaylistSourceEntity> = sources.values.toList()
-
     fun channelsOf(sourceId: String): List<ChannelEntity> = channels[sourceId]?.toList() ?: emptyList()
+
+    override suspend fun sources(): List<PlaylistSourceEntity> = sources.values.toList()
+
+    override suspend fun sourceById(id: String): PlaylistSourceEntity? = sources[id]
 
     override suspend fun sourceByUrl(url: String): PlaylistSourceEntity? =
         sources.values.firstOrNull { it.url == url }
 
+    override suspend fun sourceByNameAndType(name: String, type: String): PlaylistSourceEntity? =
+        sources.values.firstOrNull { it.name == name && it.type == type }
+
     override suspend fun upsertSource(source: PlaylistSourceEntity) {
         sources[source.id] = source
+    }
+
+    /** 模拟外键级联删除：删除源的同时清空其全部频道（含收藏，ADR-0004） */
+    override suspend fun deleteSource(id: String) {
+        sources.remove(id)
+        channels.remove(id)
     }
 
     override suspend fun channelsBySource(sourceId: String): List<ChannelEntity> =

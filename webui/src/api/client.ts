@@ -1,4 +1,4 @@
-import type { ChannelDTO, GroupDTO } from './types'
+import type { ChannelDTO, GroupDTO, ImportPreview, ImportResult, PlaylistDTO } from './types'
 
 /** 频道字段的可编辑子集（对应 PUT /api/channels/{id} 的局部更新）。 */
 export interface ChannelPatch {
@@ -69,4 +69,59 @@ export const api = {
   reorderGroups(names: string[]) {
     return request<void>('/api/groups/reorder', { method: 'POST', body: JSON.stringify({ names }) })
   },
+  // ---- 直播源（ticket 08）----
+  playlists() {
+    return request<PlaylistDTO[]>('/api/playlists')
+  },
+  renamePlaylist(id: string, name: string) {
+    return request<PlaylistDTO>(`/api/playlists/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    })
+  },
+  deletePlaylist(id: string) {
+    return request<void>(`/api/playlists/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  refreshPlaylist(id: string) {
+    return request<ImportResult>(`/api/playlists/${encodeURIComponent(id)}/refresh`, { method: 'POST' })
+  },
+  // ---- 直播源导入（ticket 03/08）----
+  previewImportUrl(url: string) {
+    return request<ImportPreview>('/api/playlist/import/preview', { method: 'POST', body: JSON.stringify({ url }) })
+  },
+  importUrl(url: string) {
+    return request<ImportResult>('/api/playlist/import', { method: 'POST', body: JSON.stringify({ url }) })
+  },
+  /** 上传文件并解析预览（不落库）。 */
+  previewImportFile(file: File) {
+    return uploadFormData<ImportPreview>('/api/playlist/upload/preview', file)
+  },
+  /** 确认导入上传文件；sourceName 非空时后端按 (type=file, name) 做同源增量合并。 */
+  importFile(file: File, sourceName?: string) {
+    const form = new FormData()
+    if (sourceName) form.append('sourceName', sourceName)
+    form.append('file', file)
+    return uploadFormData<ImportResult>('/api/playlist/upload', form)
+  },
+}
+
+/** multipart 上传：不设置 JSON Content-Type，让浏览器生成 multipart boundary。 */
+async function uploadFormData<T>(path: string, body: File | FormData): Promise<T> {
+  const form = body instanceof File ? (() => {
+    const f = new FormData()
+    f.append('file', body)
+    return f
+  })() : body
+  const res = await fetch(path, { method: 'POST', body: form })
+  if (!res.ok) {
+    let message = `请求失败 (${res.status})`
+    try {
+      const json = (await res.json()) as { error?: string }
+      if (json.error) message = json.error
+    } catch {
+      /* 非 JSON 错误体，保留默认信息 */
+    }
+    throw new Error(message)
+  }
+  return res.json() as Promise<T>
 }

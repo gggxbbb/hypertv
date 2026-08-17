@@ -7,6 +7,7 @@ import icu.gxb.hypertv.data.repository.HypertvRepository
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,6 +36,8 @@ class HypertvServer @Inject constructor(
                     webAssetLoader = ::readWebAsset,
                     playlistStore = HypertvPlaylistImportStore(repository),
                     managementStore = HypertvChannelManagementStore(repository),
+                    saveFile = ::saveUploadedFile,
+                    readFile = ::readUploadedFile,
                 )
             },
         )
@@ -55,5 +58,18 @@ class HypertvServer @Inject constructor(
         } catch (_: Exception) {
             null
         }
+    }
+
+    /** 上传的 M3U 文件落盘到应用内部目录，返回绝对路径（文件型源 refresh 读回）。 */
+    private fun saveUploadedFile(sourceId: String, bytes: ByteArray): String {
+        val dir = File(context.filesDir, "playlist_uploads").apply { mkdirs() }
+        return File(dir, "$sourceId.m3u").also { it.writeBytes(bytes) }.absolutePath
+    }
+
+    /** 按落盘路径读回上传文件内容；文件不存在时抛出 [PlaylistImportException]（路由转 400）。 */
+    private fun readUploadedFile(path: String): ByteArray {
+        val file = File(path)
+        if (!file.exists() || !file.isFile) throw PlaylistImportException("源文件不存在：$path")
+        return file.readBytes()
     }
 }

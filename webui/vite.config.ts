@@ -25,6 +25,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // dist 由 Gradle 的 cleanWebuiDist 在构建链中清理（部分 Windows 环境下 vite 的 emptyDir
+    // 会被文件系统安全删除拦截），这里不再自行清空
+    emptyOutDir: false,
     chunkSizeWarningLimit: 1500,
   },
 })

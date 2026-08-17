@@ -93,10 +93,17 @@ class HypertvRepository(
 
     val playlistSources: Flow<List<PlaylistSourceEntity>> = playlistSourceDao.getAll()
 
+    /** 一次性（非 Flow）读取全部直播源，供管理 API 等一次性任务使用 */
+    suspend fun playlistSourcesOnce(): List<PlaylistSourceEntity> = playlistSourceDao.getAllOnce()
+
     suspend fun playlistSourceById(id: String): PlaylistSourceEntity? = playlistSourceDao.getById(id)
 
     /** 按归一化 URL 查找直播源，用于重复导入同源时增量合并（ADR-0004） */
     suspend fun playlistSourceByUrl(url: String): PlaylistSourceEntity? = playlistSourceDao.getByUrl(url)
+
+    /** 按 (type, name) 查找直播源，用于文件上传重复导入同源时增量合并（ADR-0004） */
+    suspend fun playlistSourceByNameAndType(name: String, type: String): PlaylistSourceEntity? =
+        playlistSourceDao.getByTypeAndName(type, name)
 
     suspend fun upsertPlaylistSource(source: PlaylistSourceEntity) = playlistSourceDao.upsert(source)
 

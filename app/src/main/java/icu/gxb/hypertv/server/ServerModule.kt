@@ -46,13 +46,17 @@ fun Application.hypertvModule(
     playlistStore: PlaylistImportStore,
     managementStore: ChannelManagementStore,
     urlFetcher: suspend (String) -> ByteArray = PlaylistUrlFetcher::fetch,
+    /** 上传文件落盘，返回可读回路径（文件型源 refresh 依赖）；默认不落盘（仅测试/无本地文件系统场景） */
+    saveFile: suspend (sourceId: String, bytes: ByteArray) -> String = { _, _ -> "" },
+    /** 按落盘路径读回文件字节，供 refresh 文件型源使用 */
+    readFile: suspend (path: String) -> ByteArray = { throw PlaylistImportException("文件读取未配置") },
     m3uParser: M3uParser = M3uParser(),
     encodingDetector: EncodingDetector = EncodingDetector,
 ) {
     install(ContentNegotiation) {
         json(Json { prettyPrint = true })
     }
-    val importer = PlaylistImporter(m3uParser, encodingDetector, playlistStore, urlFetcher)
+    val importer = PlaylistImporter(m3uParser, encodingDetector, playlistStore, urlFetcher, saveFile, readFile)
     routing {
         get("/api/status") {
             call.respond(
@@ -88,8 +92,8 @@ fun Application.hypertvModule(
                 call.respond(HttpStatusCode.BadRequest, ImportError(e.message ?: "导入失败"))
             }
         }
-        post("/api/playlist/upload") {
-            val (fileName, bytes) = try {
+        post("/api/playlist/upload/preview") {
+            val (fileName, sourceName, bytes) = try {
                 call.receiveUploadFile()
             } catch (e: PlaylistImportException) {
                 call.respond(HttpStatusCode.BadRequest, ImportError(e.message ?: "接收上传文件失败"))
@@ -99,10 +103,87 @@ fun Application.hypertvModule(
                 if (bytes.isEmpty()) {
                     call.respond(HttpStatusCode.BadRequest, ImportError("文件内容为空"))
                 } else {
-                    call.respond(HttpStatusCode.OK, importer.importBytes(fileName, bytes))
+                    call.respond(HttpStatusCode.OK, importer.previewBytes(fileName, bytes, sourceName))
+                }
+            } catch (e: PlaylistImportException) {
+                call.respond(HttpStatusCode.BadRequest, ImportError(e.message ?: "解析预览失败"))
+            }
+        }
+        post("/api/playlist/upload") {
+            val (fileName, sourceName, bytes) = try {
+                call.receiveUploadFile()
+            } catch (e: PlaylistImportException) {
+                call.respond(HttpStatusCode.BadRequest, ImportError(e.message ?: "接收上传文件失败"))
+                return@post
+            }
+            try {
+                if (bytes.isEmpty()) {
+                    call.respond(HttpStatusCode.BadRequest, ImportError("文件内容为空"))
+                } else {
+                    call.respond(HttpStatusCode.OK, importer.importBytes(fileName, bytes, sourceName))
                 }
             } catch (e: PlaylistImportException) {
                 call.respond(HttpStatusCode.BadRequest, ImportError(e.message ?: "导入失败"))
+            }
+        }
+
+        // ---- 多源管理（ticket 08）----
+        get("/api/playlists") {
+            val sources = playlistStore.sources()
+            val dtos = sources.map { source ->
+                source.toPlaylistDto(channelCount = playlistStore.channelsBySource(source.id).size)
+            }
+            call.respond(HttpStatusCode.OK, dtos)
+        }
+        put("/api/playlists/{id}") {
+            val id = call.parameters["id"]
+            if (id.isNullOrBlank()) {
+                call.respond(HttpStatusCode.BadRequest, ApiError("缺少直播源 id"))
+                return@put
+            }
+            val body = call.receiveBody<RenamePlaylistRequest>() ?: return@put
+            val name = body.name.trim()
+            if (name.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, ApiError("名称不能为空"))
+                return@put
+            }
+            val existing = playlistStore.sourceById(id)
+            if (existing == null) {
+                call.respond(HttpStatusCode.NotFound, ApiError("直播源不存在"))
+                return@put
+            }
+            val renamed = existing.copy(name = name)
+            playlistStore.upsertSource(renamed)
+            call.respond(HttpStatusCode.OK, renamed.toPlaylistDto(playlistStore.channelsBySource(id).size))
+        }
+        delete("/api/playlists/{id}") {
+            val id = call.parameters["id"]
+            if (id.isNullOrBlank()) {
+                call.respond(HttpStatusCode.BadRequest, ApiError("缺少直播源 id"))
+                return@delete
+            }
+            if (playlistStore.sourceById(id) == null) {
+                call.respond(HttpStatusCode.NotFound, ApiError("直播源不存在"))
+                return@delete
+            }
+            // 级联删除该源全部频道（含收藏记录），外键 CASCADE 保证（ADR-0004）
+            playlistStore.deleteSource(id)
+            call.respond(HttpStatusCode.NoContent)
+        }
+        post("/api/playlists/{id}/refresh") {
+            val id = call.parameters["id"]
+            if (id.isNullOrBlank()) {
+                call.respond(HttpStatusCode.BadRequest, ApiError("缺少直播源 id"))
+                return@post
+            }
+            if (playlistStore.sourceById(id) == null) {
+                call.respond(HttpStatusCode.NotFound, ApiError("直播源不存在"))
+                return@post
+            }
+            try {
+                call.respond(HttpStatusCode.OK, importer.refreshSource(id))
+            } catch (e: PlaylistImportException) {
+                call.respond(HttpStatusCode.BadRequest, ImportError(e.message ?: "刷新失败"))
             }
         }
 
@@ -316,18 +397,28 @@ private suspend inline fun <reified T> ApplicationCall.receiveBody(): T? {
     }
 }
 
-/** 从 multipart 中取第一个文件字段，返回 (原始文件名, 字节)。 */
-private suspend fun ApplicationCall.receiveUploadFile(): Pair<String?, ByteArray> {
+/** 上传文件 multipart 解析结果：文件名 + 可选的 sourceName 文本字段 + 文件字节。 */
+private data class UploadedFile(
+    val fileName: String?,
+    val sourceName: String?,
+    val bytes: ByteArray,
+)
+
+/** 从 multipart 中取第一个文件字段与可选的 sourceName 文本字段（读完全部 part）。 */
+private suspend fun ApplicationCall.receiveUploadFile(): UploadedFile {
     val multipart = receiveMultipart()
     var fileName: String? = null
+    var sourceName: String? = null
     var bytes: ByteArray? = null
-    while (bytes == null) {
+    while (true) {
         val part = multipart.readPart() ?: break
-        if (part is PartData.FileItem) {
+        if (part is PartData.FileItem && bytes == null) {
             fileName = part.originalFileName
             bytes = part.provider().readRemaining().readByteArray()
+        } else if (part is PartData.FormItem && part.name == "sourceName") {
+            sourceName = part.value.trim().takeIf { it.isNotEmpty() }
         }
         part.dispose()
     }
-    return fileName to (bytes ?: ByteArray(0))
+    return UploadedFile(fileName, sourceName, bytes ?: ByteArray(0))
 }

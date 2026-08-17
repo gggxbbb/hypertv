@@ -116,10 +116,18 @@ val npmInstallWebui by tasks.registering(Exec::class) {
     commandLine(npmCommand, "install", "--no-audit", "--no-fund")
 }
 
+// 显式清理 dist（vite 的 emptyOutDir 在部分 Windows 环境会被文件系统安全删除拦截），
+// 因此 buildWebui 前先由 Gradle 删除，vite 侧 emptyOutDir=false
+val cleanWebuiDist by tasks.registering(Delete::class) {
+    group = "webui"
+    description = "清理 WebUI 构建产物目录 webui/dist"
+    delete(webuiDistDir)
+}
+
 val buildWebui by tasks.registering(Exec::class) {
     group = "webui"
     description = "构建 Vue WebUI 到 webui/dist"
-    dependsOn(npmInstallWebui)
+    dependsOn(npmInstallWebui, cleanWebuiDist)
     workingDir = webuiDir.asFile
     commandLine(npmCommand, "run", "build")
     inputs.dir(webuiDir.dir("src"))
@@ -137,6 +145,8 @@ val copyWebuiToAssets by tasks.registering(Copy::class) {
     group = "webui"
     description = "复制 WebUI 构建产物到 app 的 assets/webui"
     dependsOn(buildWebui)
+    // 复制前清空目标，避免旧 hash 文件名残留
+    delete(webuiAssetsDir)
     from(webuiDistDir)
     into(webuiAssetsDir)
 }

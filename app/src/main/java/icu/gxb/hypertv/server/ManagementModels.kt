@@ -2,6 +2,7 @@ package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
 import icu.gxb.hypertv.data.entity.GroupEntity
+import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
 import kotlinx.serialization.Serializable
 
 /** 统一错误响应：非 2xx 时返回 {"error": "..."}。 */
@@ -80,3 +81,28 @@ data class GroupUpsertRequest(
 /** POST /api/groups/reorder 请求体：目标顺序的分组名列表（未列出的分组保持原相对顺序排到末尾）。 */
 @Serializable
 data class ReorderGroupsRequest(val names: List<String>)
+
+/** 直播源对外 DTO：附加该源当前频道数（含隐藏），供 WebUI 列表展示。 */
+@Serializable
+data class PlaylistDTO(
+    val id: String,
+    val name: String,
+    /** "url" 或 "file" */
+    val type: String,
+    val url: String,
+    val channelCount: Int,
+    val lastImportedAt: Long,
+)
+
+fun PlaylistSourceEntity.toPlaylistDto(channelCount: Int): PlaylistDTO = PlaylistDTO(
+    id = id,
+    name = name,
+    type = type,
+    url = url,
+    channelCount = channelCount,
+    lastImportedAt = lastImportedAt,
+)
+
+/** PUT /api/playlists/{id} 请求体：直播源重命名。 */
+@Serializable
+data class RenamePlaylistRequest(val name: String)
