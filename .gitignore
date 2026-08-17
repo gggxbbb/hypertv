@@ -29,6 +29,9 @@ signing.properties
 # ========== 本地工具数据 ==========
 .workbuddy/
 
+# ========== WebUI 构建产物（Gradle 从 webui/dist 复制，不入库） ==========
+app/src/main/assets/webui/
+
 # ========== OS ==========
 .DS_Store
 Thumbs.db
