@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.GroupEntity
 import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
 import icu.gxb.hypertv.data.repository.HypertvRepository
 
@@ -31,4 +32,18 @@ class HypertvPlaylistImportStore(
         updates: List<ChannelEntity>,
         hides: List<ChannelEntity>,
     ) = repository.applyImport(source, inserts, updates, hides)
+
+    override suspend fun upsertGroups(names: List<String>) {
+        names.map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .forEach { name ->
+                if (repository.groupByNameOnce(name) == null) {
+                    val nextOrder = (repository.groupsOnce().maxOfOrNull { it.orderIndex } ?: -1) + 1
+                    repository.upsertGroup(
+                        GroupEntity(name = name, orderIndex = nextOrder, isCollapsed = false, epgUrl = null),
+                    )
+                }
+            }
+    }
 }

@@ -152,6 +152,9 @@ class PlaylistImporter(
         val existing = store.channelsBySource(source.id)
         val merge = mergeChannels(existing, parsed.channels, source.id, now)
         store.applyImport(source.copy(lastImportedAt = now), merge.inserts, merge.updates, merge.hides)
+        // 分组同步：每次导入（新增/更新/隐藏）都把解析出的分组名落 groups 表，
+        // 电视端分组标签与 WebUI 分组管理页都读 groups 表，落库即生效。
+        store.upsertGroups(parsed.groups)
 
         return ImportResult(
             imported = merge.imported,

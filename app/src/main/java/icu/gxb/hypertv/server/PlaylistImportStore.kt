@@ -38,4 +38,11 @@ interface PlaylistImportStore {
         updates: List<ChannelEntity>,
         hides: List<ChannelEntity>,
     )
+
+    /**
+     * 确保分组名在 groups 表中存在（导入分组同步）。
+     * 已存在的分组跳过（保留用户配置的 orderIndex/isCollapsed/epgUrl），
+     * 不存在的分组追加到末尾（orderIndex = 当前最大 + 1）。
+     */
+    suspend fun upsertGroups(names: List<String>)
 }

@@ -1,6 +1,7 @@
 package icu.gxb.hypertv.server
 
 import icu.gxb.hypertv.data.entity.ChannelEntity
+import icu.gxb.hypertv.data.entity.GroupEntity
 import icu.gxb.hypertv.data.entity.PlaylistSourceEntity
 
 /** 路由/导入测试用的内存实现 [PlaylistImportStore]，跨请求保留状态。 */
@@ -8,8 +9,11 @@ class FakePlaylistImportStore : PlaylistImportStore {
 
     private val sources = mutableMapOf<String, PlaylistSourceEntity>()
     private val channels = mutableMapOf<String, MutableList<ChannelEntity>>()
+    private val groups = mutableMapOf<String, GroupEntity>()
 
     fun channelsOf(sourceId: String): List<ChannelEntity> = channels[sourceId]?.toList() ?: emptyList()
+
+    fun groupsAll(): List<GroupEntity> = groups.values.sortedBy { it.orderIndex }
 
     override suspend fun sources(): List<PlaylistSourceEntity> = sources.values.toList()
 
@@ -47,5 +51,18 @@ class FakePlaylistImportStore : PlaylistImportStore {
             list.add(ch)
         }
         list.sortBy { it.orderIndex }
+    }
+
+    /** 与 [HypertvPlaylistImportStore] 相同语义：已存在分组跳过，新分组追加到末尾。 */
+    override suspend fun upsertGroups(names: List<String>) {
+        names.map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .forEach { name ->
+                if (name !in groups) {
+                    val nextOrder = (groups.values.maxOfOrNull { it.orderIndex } ?: -1) + 1
+                    groups[name] = GroupEntity(name = name, orderIndex = nextOrder, isCollapsed = false, epgUrl = null)
+                }
+            }
     }
 }

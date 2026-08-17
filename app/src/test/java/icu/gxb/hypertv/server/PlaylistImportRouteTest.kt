@@ -176,6 +176,22 @@ class PlaylistImportRouteTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    @Test
+    fun `import syncs parsed groups to store`() = testApplication {
+        val store = FakePlaylistImportStore()
+        hypertvApp(store)
+
+        val response = client.post("/api/playlist/import") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"url":"http://pl.example.com/live.m3u"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        // 解析出的分组名（去重、非空）同步进 fake store 的分组表
+        assertEquals(listOf("新闻", "体育"), store.groupsAll().map { it.name })
+        assertEquals(listOf(0, 1), store.groupsAll().map { it.orderIndex })
+    }
+
     // ---- /api/playlist/upload ----
 
     @Test
