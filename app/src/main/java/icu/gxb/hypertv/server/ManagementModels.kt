@@ -26,6 +26,11 @@ data class ChannelDTO(
     /** EPG 匹配来源（v5）：null=未匹配；"manual" | "rule" | "level1"~"level5" */
     val epgMatchSource: String?,
     val catchup: String?,
+    /** 详情展示用元数据（v5 补齐，前端详情卡片） */
+    val orderIndex: Int,
+    val catchupDays: Int?,
+    val catchupSource: String?,
+    val createdAt: Long,
 )
 
 /**
@@ -44,6 +49,10 @@ fun ChannelEntity.toDto(number: Int): ChannelDTO = ChannelDTO(
     epgId = epgId,
     epgMatchSource = epgMatchSource,
     catchup = catchup,
+    orderIndex = orderIndex,
+    catchupDays = catchupDays,
+    catchupSource = catchupSource,
+    createdAt = createdAt,
 )
 
 /** 分组对外 DTO：附带组内频道数（含隐藏），供 WebUI 展示。 */
