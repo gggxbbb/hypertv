@@ -79,6 +79,9 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+    // Media3 播放器（ExoPlayer 核心 + PlayerView 控件，ticket 04）
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
 
     // Tests
     testImplementation(libs.junit)
