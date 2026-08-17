@@ -15,7 +15,7 @@ class MainMenuState {
     var isOpen by mutableStateOf(false)
         private set
 
-    /** 焦点在启用项序列中的下标（0 = 第一个启用项"收藏列表"） */
+    /** 焦点在启用项序列中的下标（0 = 第一个启用项"节目表"） */
     var selectedIndex by mutableStateOf(0)
         private set
 

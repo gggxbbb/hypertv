@@ -79,7 +79,8 @@ import kotlinx.coroutines.launch
  * - 星号键（*）/ 红色功能键 / Bookmark 键：播放页切换当前播放频道收藏；浮层打开时
  *   切换浮层焦点频道收藏；收藏列表页内切换焦点频道收藏，均显示短暂提示
  * - Menu 键（ticket 06）：播放页呼出主菜单（半透明面板），上下键移动焦点、OK 进入
- *   节目表/收藏列表/关于（回放为 v2 占位不可聚焦）、返回键关闭回到播放页
+ *   节目表/收藏本频道（ticket 01，OK 切换收藏+提示）/收藏列表/关于（回放为 v2 占位不可聚焦）、
+ *   返回键关闭回到播放页
  * - 返回键：浮层内仅收起不换台；主菜单/收藏列表页/关于页内关闭回到播放页；浮层外先取消数字输入
  *
  * 频道列表浮层（左右两栏）：左栏 = 分组标签行（收藏第一个）+ 频道列表
@@ -163,6 +164,11 @@ fun PlayerScreen(
 
     val currentChannel = channels.firstOrNull { it.id == stateChannelId(state) }
     val currentChannelId = currentChannel?.id
+
+    // 主菜单项（ticket 01）：收藏项文案随当前频道收藏状态切换；收藏状态以 favoriteStore
+    // Flow 为单一真源（含 WebUI 侧改动实时刷新），不依赖 channels 快照里的 isFavorite 字段
+    val currentChannelFavorite = currentChannelId != null && favorites.any { it.id == currentChannelId }
+    val menuItems = remember(currentChannelId, favorites) { mainMenuItems(currentChannelFavorite) }
 
     // 标签序列与当前标签过滤后的频道列表
     val tabs = remember(groups) { ChannelListFilter.tabs(groups) }
@@ -297,26 +303,41 @@ fun PlayerScreen(
     handler.filteredChannels = filteredChannels
     handler.allChannels = channels
     handler.favorites = favorites
+    handler.menuItems = menuItems
+    handler.menuEnabledCount = mainMenuEnabledCount(menuItems)
     handler.onConfirmSelection = {
         val id = overlay.focusedChannelId
         if (id != null) controller.play(id)
         overlay.close()
     }
     handler.onMenuConfirm = { index ->
-        // index 0 节目表 / 1 收藏列表 / 2 关于；进入前打断数字输入，避免 2s 后误跳转
+        // 主菜单启用项（index 为启用项序列下标）：0 节目表 / 1 收藏本频道 / 2 收藏列表 /
+        // 3 关于（显式常量映射，禁止魔法数字）；进入前打断数字输入，避免 2s 后误跳转
         numberInput.clear()
         when (index) {
-            0 -> {
+            MENU_INDEX_GUIDE -> {
                 menu.close()
                 infoOverlay.close()
                 guide.open(System.currentTimeMillis(), channels.size)
             }
-            1 -> {
+            MENU_INDEX_TOGGLE_FAVORITE -> {
+                // OK 收藏项：切换当前频道收藏 + 右上角提示（复用 onToggleFavorite 机制），
+                // 随后关闭菜单回播放页，行为与星号键一致
+                val id = currentChannelId
+                if (id != null) {
+                    scope.launch {
+                        val nowFavorite = favoriteStore.toggle(id)
+                        handler.onToggleFavorite(id, nowFavorite)
+                    }
+                }
+                menu.close()
+            }
+            MENU_INDEX_FAVORITES -> {
                 menu.close()
                 infoOverlay.close()
                 favoritesScreen.open()
             }
-            2 -> {
+            MENU_INDEX_ABOUT -> {
                 menu.close()
                 infoOverlay.close()
                 about.open()
@@ -500,7 +521,7 @@ fun PlayerScreen(
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
-            MainMenuPanel(selectedIndex = menu.selectedIndex)
+            MainMenuPanel(items = menuItems, selectedIndex = menu.selectedIndex)
         }
 
         // 收藏列表全屏页（主菜单"⭐ 收藏列表"进入）
@@ -684,6 +705,10 @@ private class PlayerKeyHandler(
     /** 完整可见频道列表（Guide 行焦点用，与浮层过滤列表无关） */
     var allChannels: List<Channel> = emptyList()
     var favorites: List<Channel> = emptyList()
+    /** 主菜单项（ticket 01）：收藏项文案随当前频道收藏状态动态切换，由调用方同步 */
+    var menuItems: List<MenuItem> = emptyList()
+    /** 主菜单可用项数量（焦点仅在启用项之间移动，含动态收藏项） */
+    var menuEnabledCount: Int = 0
     var currentChannelId: String? = null
     var onConfirmSelection: () -> Unit = {}
     var onMenuConfirm: (Int) -> Unit = {}
@@ -747,17 +772,17 @@ private class PlayerKeyHandler(
     /** 主菜单导航：上下键移动焦点（仅启用项）、OK 确认、返回键关闭；左右键无功能 */
     private fun handleMenuKey(code: Int): Boolean = when (code) {
         AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_CHANNEL_UP -> {
-            menu.moveFocus(-1, MAIN_MENU_ENABLED_COUNT)
+            menu.moveFocus(-1, menuEnabledCount)
             true
         }
         AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_CHANNEL_DOWN -> {
-            menu.moveFocus(1, MAIN_MENU_ENABLED_COUNT)
+            menu.moveFocus(1, menuEnabledCount)
             true
         }
         AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER,
         AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
         -> {
-            if (MAIN_MENU_ENABLED_COUNT > 0) onMenuConfirm(menu.selectedIndex)
+            if (menuEnabledCount > 0) onMenuConfirm(menu.selectedIndex)
             true
         }
         AndroidKeyEvent.KEYCODE_BACK -> {
@@ -913,6 +938,12 @@ private const val SIGNAL_LOST_BG_ALPHA = 0.6f
 private const val FAVORITE_HINT_BG_ALPHA = 0.8f
 private const val NUMBER_BG_ALPHA = 0.8f
 private const val PANEL_BG_ALPHA = 0.75f
+
+/** 主菜单启用项下标（ticket 01）：节目表 / 收藏本频道 / 收藏列表 / 关于（显式常量映射，禁止魔法数字） */
+private const val MENU_INDEX_GUIDE = 0
+private const val MENU_INDEX_TOGGLE_FAVORITE = 1
+private const val MENU_INDEX_FAVORITES = 2
+private const val MENU_INDEX_ABOUT = 3
 
 /** 右栏 EPG 时间轴面板高度（矮条：频道名 + 时间轴，够显示即可，下方露出视频） */
 private val EPG_PANEL_HEIGHT = 100.dp
